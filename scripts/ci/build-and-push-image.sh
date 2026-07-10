@@ -55,6 +55,28 @@ cmake_install_standalone() {
   cmake --install "${build_dir}" --component graph --component common
 }
 
+# graph component install often skips bin/ and etc/ for standalone builds; stage explicitly.
+stage_standalone_graph_artifacts() {
+  local nebula_root="$1"
+  local build_dir="$2"
+  local install_dir="$3"
+  local binary="${build_dir}/bin/nebula-standalone"
+  local conf_src="${nebula_root}/conf/nebula-standalone.conf.default"
+
+  if [[ ! -f "${binary}" ]]; then
+    echo "missing built standalone binary: ${binary}" >&2
+    exit 1
+  fi
+  if [[ ! -f "${conf_src}" ]]; then
+    echo "missing standalone conf source: ${conf_src}" >&2
+    exit 1
+  fi
+
+  echo "=== stage standalone graph artifacts (bin, etc) ==="
+  install -Dm755 "${binary}" "${install_dir}/bin/nebula-standalone"
+  install -Dm644 "${conf_src}" "${install_dir}/etc/nebula-standalone.conf.default"
+}
+
 install_third_party() {
   local nebula_root="$1"
   local tp_prefix="${nebula_root}/build/third-party/install"
@@ -87,6 +109,7 @@ build_rocksdb() {
   cmake_build_standalone "${build_dir}"
   rm -rf "${install_dir}"
   cmake_install_standalone .
+  stage_standalone_graph_artifacts "${nebula_root}" "${build_dir}" "${install_dir}"
   prepare_install_conf "${install_dir}"
   bash "${SCRIPT_DIR}/strip-binaries.sh" "${install_dir}"
 }
@@ -115,6 +138,7 @@ build_topling() {
   cmake_build_standalone "${build_dir}"
   rm -rf "${install_dir}"
   cmake_install_standalone .
+  stage_standalone_graph_artifacts "${nebula_root}" "${build_dir}" "${install_dir}"
   prepare_install_conf "${install_dir}"
 
   mkdir -p "${install_dir}/lib" "${install_dir}/etc/topling"
