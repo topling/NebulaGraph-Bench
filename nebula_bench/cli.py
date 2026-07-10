@@ -223,6 +223,44 @@ def export(folder, output, filetype):
     controller.export(folder=folder, output=output, filetype=filetype)
 
 
+@report.command(name="compare", help="export comparison html between two result folders")
+@click.option("-s", "--src", required=True, help="src result folder")
+@click.option("-d", "--dst", required=True, help="dst result folder")
+@click.option(
+    "-o",
+    "--output",
+    default="comparison.html",
+    help="output html path, default: comparison.html",
+)
+@click.option("--src-label", default=None, help="label for src in report")
+@click.option("--dst-label", default=None, help="label for dst in report")
+def compare(src, dst, output, src_label, dst_label):
+    controller = DumpController()
+    controller.export_comparison(src, dst, output, src_label, dst_label)
+
+
+@report.command(name="compare-triple", help="export triple-profile comparison html with charts")
+@click.option("--rocksdb", required=True, help="rocksdb result folder")
+@click.option("--conservative", required=True, help="conservative result folder")
+@click.option("--enterprise", required=True, help="enterprise result folder")
+@click.option(
+    "-o",
+    "--output",
+    default="comparison.html",
+    help="output html path, default: comparison.html",
+)
+def compare_triple(rocksdb, conservative, enterprise, output):
+    controller = DumpController()
+    controller.export_triple_comparison(
+        {
+            "rocksdb": rocksdb,
+            "conservative": conservative,
+            "enterprise": enterprise,
+        },
+        output,
+    )
+
+
 @report.command(help="launch the http report server")
 @click.option("-p", "--port", default=4040, help="http server port, default: 4040")
 def serve(port):

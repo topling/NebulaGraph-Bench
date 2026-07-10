@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>ToplingDB Triple Benchmark Comparison</title>
+	<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet"
+		integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
+	<style>
+		.profile-rocksdb { color: #3977b0; }
+		.profile-conservative { color: #f0ad4e; }
+		.profile-enterprise { color: #5cb85c; }
+		.summary-table { font-size: 85%; margin-top: 24px; }
+		.summary-table th, .summary-table td { white-space: nowrap; }
+	</style>
+</head>
+
+<body style="height: auto">
+	<div class="container-fluid">
+		<div id="title" class="h3">ToplingDB Triple Benchmark Comparison</div>
+		<p class="text-muted">rocksdb / conservative / enterprise</p>
+		<div id="report" style="margin-top: 15px;font-size: 90%;"></div>
+		<div id="summary" class="summary-table"></div>
+
+	<script src="https://cdn.jsdelivr.net/npm/echarts@5.4.0/dist/echarts.min.js"></script>
+	<script type="text/javascript">
+		const PROFILE_COLORS = {
+			rocksdb: "#3977b0",
+			conservative: "#f0ad4e",
+			enterprise: "#5cb85c",
+		};
+
+		function findCase(profileData, caseName) {
+			for (let i = 0; i < profileData.length; i++) {
+				if (profileData[i].case.name === caseName) {
+					return profileData[i];
+				}
+			}
+			return null;
+		}
+
+		function get_echart_data(reports, type, metric) {
+			let data = [];
+			for (let i = 0; i < reports.length; i++) {
+				let metrics = reports[i]["report"]["metrics"];
+				if (metrics[type] == undefined || metrics[type][metric] == undefined) {
+					return data;
+				}
+				let d = metrics[type][metric];
+				if (type == "latency" || type == "responseTime") {
+					d = d / 1000;
+				}
+				if (typeof d === "number") {
+					data.push(Number.isInteger(d) ? d : Number(d.toFixed(2)));
+				} else {
+					data.push(d);
+				}
+			}
+			return data;
+		}
+
+		function get_accuracy_series(k6Metrics) {
+			let passes = get_echart_data(k6Metrics, "checks", "passes");
+			let fails = get_echart_data(k6Metrics, "checks", "fails");
+			let rate = [];
+			for (let j = 0; j < passes.length; j++) {
+				rate.push(Number((passes[j] / (passes[j] + fails[j]) * 100).toFixed(2)));
+			}
+			return rate;
+		}
+
+		function metric_at_vu(k6Metrics, vu, type, metric, scaleMs) {
+			for (let i = 0; i < k6Metrics.length; i++) {
+				if (k6Metrics[i].vu !== vu) {
+					continue;
+				}
+				let m = k6Metrics[i].report.metrics[type];
+				if (!m || m[metric] == undefined) {
+					return "-";
+				}
+				let d = m[metric];
+				if (scaleMs) {
+					d = d / 1000;
+				}
+				return typeof d === "number" ? Number(d.toFixed(2)) : d;
+			}
+			return "-";
+		}
+
+		function drawMultiChart(containerId, title, vus, seriesList, yAxisName) {
+			const option = {
+				title: {
+					text: title,
+					x: "center",
+					textStyle: { fontSize: 15, fontWeight: "normal" }
+				},
+				tooltip: { trigger: "axis" },
+				legend: {
+					data: seriesList.map(s => s.name),
+					top: "8%"
+				},
+				grid: {
+					left: "3%",
+					right: "4%",
+					bottom: "3%",
+					containLabel: true
+				},
+				toolbox: {
+					feature: { saveAsImage: {} }
+				},
+				xAxis: {
+					type: "category",
+					boundaryGap: true,
+					data: vus
+				},
+				yAxis: {
+					type: "value",
+					name: yAxisName || ""
+				},
+				series: seriesList.map(s => ({
+					name: s.name,
+					type: "line",
+					color: s.color,
+					data: s.data,
+					label: { show: true, position: "top" },
+					labelLayout: { moveOverlap: "shiftY" }
+				}))
+			};
+			const c = document.getElementById(containerId);
+			if (!c) {
+				return;
+			}
+			echarts.dispose(c);
+			echarts.init(c).setOption(option);
+		}
+
+		function collectCaseNames(profiles) {
+			const names = new Set();
+			for (const p of profiles) {
+				for (const item of p.data) {
+					names.add(item.case.name);
+				}
+			}
+			return Array.from(names).sort();
+		}
+
+		function collectVus(caseEntry) {
+			return caseEntry.k6.map(k => k.vu + "_vu");
+		}
+
+		function draw_case(profiles, caseName) {
+			const entries = {};
+			for (const p of profiles) {
+				entries[p.label] = findCase(p.data, caseName);
+			}
+			const anchor = entries[profiles[0].label] || Object.values(entries).find(Boolean);
+			if (!anchor) {
+				return;
+			}
+
+			let infoDiv = document.createElement("div");
+			infoDiv.classList.add("row");
+			infoDiv.style = "margin-top: 15px;";
+			let name = document.createElement("div");
+			name.innerHTML = anchor.case.name;
+			infoDiv.appendChild(name);
+			let stmt = document.createElement("div");
+			stmt.style = "color: gray;font-size: 80%;";
+			stmt.innerHTML = anchor.case.stmt;
+			infoDiv.appendChild(stmt);
+			document.getElementById("report").appendChild(infoDiv);
+
+			let drawDiv = document.createElement("div");
+			drawDiv.classList.add("row");
+			drawDiv.style = "margin-top: 8px;";
+			document.getElementById("report").appendChild(drawDiv);
+
+			const vus = collectVus(anchor);
+			const safeName = caseName.replace(/[^a-zA-Z0-9_-]/g, "_");
+
+			function seriesForMetric(type, metric, scaleMs) {
+				return profiles.map(p => {
+					const entry = entries[p.label];
+					return {
+						name: p.label,
+						color: PROFILE_COLORS[p.label] || undefined,
+						data: entry ? get_echart_data(entry.k6, type, metric) : []
+					};
+				});
+			}
+
+			let qpsDiv = document.createElement("div");
+			qpsDiv.classList.add("col-sm-6", "col-lg-3");
+			let qpsDraw = document.createElement("div");
+			qpsDraw.id = safeName + "_qps";
+			qpsDraw.style = "height: 320px; width: 100%;";
+			qpsDiv.appendChild(qpsDraw);
+			drawDiv.appendChild(qpsDiv);
+			drawMultiChart(
+				qpsDraw.id,
+				caseName + " QPS",
+				vus,
+				seriesForMetric("iterations", "rate", false),
+				"QPS"
+			);
+
+			const chartMetrics = [
+				{ key: "latency", title: "Latency P95 (ms)", metric: "p(95)", scaleMs: true },
+				{ key: "responseTime", title: "ResponseTime P95 (ms)", metric: "p(95)", scaleMs: true },
+				{ key: "rowSize", title: "RowSize P95", metric: "p(95)", scaleMs: false }
+			];
+			for (const cm of chartMetrics) {
+				let metricDiv = document.createElement("div");
+				metricDiv.classList.add("col-sm-6", "col-lg-3");
+				let metricDraw = document.createElement("div");
+				metricDraw.id = safeName + "_" + cm.key;
+				metricDraw.style = "height: 320px; width: 100%;";
+				metricDiv.appendChild(metricDraw);
+				drawDiv.appendChild(metricDiv);
+				drawMultiChart(
+					metricDraw.id,
+					caseName + " " + cm.title,
+					vus,
+					seriesForMetric(cm.key, cm.metric, cm.scaleMs),
+					cm.title
+				);
+			}
+		}
+
+		function build_summary_table(profiles) {
+			const caseNames = collectCaseNames(profiles);
+			const labels = profiles.map(p => p.label);
+			let html = '<h4 class="mt-4">Summary table</h4>';
+			html += '<div class="table-responsive"><table class="table table-sm table-bordered table-hover">';
+			html += "<thead><tr><th>Case</th><th>VU</th>";
+			for (const label of labels) {
+				html += `<th class="profile-${label}">${label} QPS</th>`;
+			}
+			for (const label of labels) {
+				html += `<th class="profile-${label}">${label} Lat P95</th>`;
+			}
+			for (const label of labels) {
+				html += `<th class="profile-${label}">${label} Resp P95</th>`;
+			}
+			html += "</tr></thead><tbody>";
+
+			for (const caseName of caseNames) {
+				const vuSet = new Set();
+				for (const p of profiles) {
+					const entry = findCase(p.data, caseName);
+					if (!entry) continue;
+					for (const k of entry.k6) {
+						vuSet.add(k.vu);
+					}
+				}
+				const vus = Array.from(vuSet).sort((a, b) => a - b);
+				for (const vu of vus) {
+					html += `<tr><td>${caseName}</td><td>${vu}</td>`;
+					for (const p of profiles) {
+						const entry = findCase(p.data, caseName);
+						const val = entry ? metric_at_vu(entry.k6, vu, "iterations", "rate", false) : "-";
+						html += `<td>${val}</td>`;
+					}
+					for (const p of profiles) {
+						const entry = findCase(p.data, caseName);
+						const val = entry ? metric_at_vu(entry.k6, vu, "latency", "p(95)", true) : "-";
+						html += `<td>${val}</td>`;
+					}
+					for (const p of profiles) {
+						const entry = findCase(p.data, caseName);
+						const val = entry ? metric_at_vu(entry.k6, vu, "responseTime", "p(95)", true) : "-";
+						html += `<td>${val}</td>`;
+					}
+					html += "</tr>";
+				}
+			}
+			html += "</tbody></table></div>";
+			document.getElementById("summary").innerHTML = html;
+		}
+
+		let profiles = {{ profiles }};
+		for (const caseName of collectCaseNames(profiles)) {
+			draw_case(profiles, caseName);
+		}
+		build_summary_table(profiles);
+	</script>
+</body>
+
+</html>

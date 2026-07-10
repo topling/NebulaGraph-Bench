@@ -2,6 +2,7 @@
 from pathlib import Path
 import os
 import json
+from markupsafe import Markup
 from nebula_bench import parser
 from nebula_bench import setting
 from nebula_bench.utils import logger
@@ -146,6 +147,49 @@ class DumpController(object):
         if case is not None:
             data.append(case)
         return data
+
+    def export_comparison(self, src_folder, dst_folder, output, src_label=None, dst_label=None):
+        src_data = self.get_data(src_folder)
+        dst_data = self.get_data(dst_folder)
+        if not src_data:
+            raise Exception("empty benchmark data in src folder: %s" % src_folder)
+        if not dst_data:
+            raise Exception("empty benchmark data in dst folder: %s" % dst_folder)
+        src_name = src_label or Path(src_folder).name
+        dst_name = dst_label or Path(dst_folder).name
+        utils.jinja_dump(
+            "comparison.html.j2",
+            output,
+            {
+                "src_data": Markup(json.dumps(src_data)),
+                "dst_data": Markup(json.dumps(dst_data)),
+                "server": False,
+                "src_output": src_name,
+                "dst_output": dst_name,
+            },
+        )
+
+    def export_triple_comparison(self, profile_folders, output):
+        order = ("rocksdb", "conservative", "enterprise")
+        profiles = []
+        for label in order:
+            folder = profile_folders.get(label)
+            if not folder:
+                continue
+            data = self.get_data(folder)
+            if not data:
+                raise Exception("empty benchmark data for profile: %s" % label)
+            profiles.append({"label": label, "data": data})
+        if len(profiles) < 2:
+            raise Exception("need at least two profiles for triple comparison")
+        utils.jinja_dump(
+            "comparison-triple.html.j2",
+            output,
+            {
+                "profiles": Markup(json.dumps(profiles)),
+                "server": False,
+            },
+        )
 
     def serve(self, port=5000):
         import flask

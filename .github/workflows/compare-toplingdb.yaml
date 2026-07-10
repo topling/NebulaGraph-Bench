@@ -4,13 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       rocksdb_image:
-        description: GHCR image for official rocksdb standalone
+        description: GHCR image for official rocksdb standalone (empty = ghcr.io/<owner>/nebula-standalone-rocksdb:latest)
         required: false
-        default: ghcr.io/topling/nebula-standalone-rocksdb:latest
+        default: ""
       topling_image:
-        description: GHCR image for topling standalone (shared by conservative/enterprise)
+        description: GHCR image for topling standalone (empty = ghcr.io/<owner>/nebula-standalone-topling:latest)
         required: false
-        default: ghcr.io/topling/nebula-standalone-topling:latest
+        default: ""
       scale_factor:
         description: LDBC scale factor
         required: false
@@ -94,12 +94,14 @@ jobs:
 
       - name: Pull image and run profile bench
         env:
-          ROCKSDB_IMAGE: ${{ inputs.rocksdb_image }}
-          TOPLING_IMAGE: ${{ inputs.topling_image }}
+          ROCKSDB_IMAGE: ${{ inputs.rocksdb_image != '' && inputs.rocksdb_image || format('ghcr.io/{0}/nebula-standalone-rocksdb:latest', github.repository_owner) }}
+          TOPLING_IMAGE: ${{ inputs.topling_image != '' && inputs.topling_image || format('ghcr.io/{0}/nebula-standalone-topling:latest', github.repository_owner) }}
           SCALE_FACTOR: ${{ inputs.scale_factor }}
           STRESS_ARGS: ${{ inputs.stress_args }}
         run: |
           set -euo pipefail
+          echo "ROCKSDB_IMAGE=${ROCKSDB_IMAGE}"
+          echo "TOPLING_IMAGE=${TOPLING_IMAGE}"
           # Guard: no nebula compile in this workflow
           if grep -RInE 'cmake|make build|docker build' scripts/ci/run-profile-bench.sh >/dev/null; then
             echo "unexpected compile hooks in run-profile-bench.sh" >&2
@@ -114,3 +116,80 @@ jobs:
           name: bench-${{ matrix.profile }}
           path: output/${{ matrix.profile }}-*
           if-no-files-found: warn
+
+  report:
+    name: comparison-report
+    needs: bench
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: compare-toplingdb-pages
+      cancel-in-progress: false
+    steps:
+      - name: Checkout nebula-bench
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.8"
+
+      - name: Install report deps
+        run: python3 -m pip install --upgrade pip && python3 -m pip install -r requirements.txt
+
+      - name: Download bench artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: output
+          pattern: bench-*
+          merge-multiple: true
+
+      - name: Generate comparison report
+        run: bash scripts/ci/generate-comparison-report.sh
+
+      - name: Upload comparison report artifact
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: comparison-report
+          path: output/comparison-report/
+          if-no-files-found: error
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: output/comparison-report
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Publish report URL
+        if: success()
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+          base="${PAGE_URL%/}/"
+          {
+            echo "## ToplingDB Benchmark Comparison"
+            echo
+            echo "**Report site:** ${base}"
+            echo
+            echo "| Report | URL |"
+            echo "| --- | --- |"
+            echo "| **Triple comparison (charts + table)** | ${base}comparison.html |"
+            echo "| Index | ${base} |"
+            for name in rocksdb conservative enterprise; do
+              if [[ -f "output/comparison-report/${name}.html" ]]; then
+                echo "| ${name} (single) | ${base}${name}.html |"
+              fi
+            done
+          } >> "${GITHUB_STEP_SUMMARY}"
