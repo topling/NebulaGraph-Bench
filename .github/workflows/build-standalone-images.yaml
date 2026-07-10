@@ -66,10 +66,10 @@ jobs:
       CCACHE_DIR: /tmp/ccache/nebula-standalone-rocksdb
     steps:
       - name: Checkout nebula-bench
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Checkout official NebulaGraph
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ inputs.rocksdb_repo }}
           ref: ${{ inputs.rocksdb_ref }}
@@ -79,7 +79,7 @@ jobs:
         run: bash scripts/ci/install-nebula-build-deps.sh
 
       - name: Cache ccache (rocksdb)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /tmp/ccache/nebula-standalone-rocksdb
           key: ${{ runner.os }}-ccache-rocksdb-${{ hashFiles('deps/nebulagraph/**/CMakeLists.txt') }}
@@ -87,7 +87,7 @@ jobs:
             ${{ runner.os }}-ccache-rocksdb-
 
       - name: Cache nebula third-party
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: deps/nebulagraph/build/third-party/install
           key: ${{ runner.os }}-nebula-tp-rocksdb-${{ hashFiles('deps/nebulagraph/third-party/install-third-party.sh') }}
@@ -95,10 +95,10 @@ jobs:
             ${{ runner.os }}-nebula-tp-rocksdb-
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -135,17 +135,17 @@ jobs:
       CCACHE_DIR: /tmp/ccache/nebula-standalone-topling
     steps:
       - name: Checkout nebula-bench
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Checkout topling/nebula
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ inputs.topling_repo }}
           ref: ${{ inputs.topling_ref }}
           path: deps/nebulagraph-toplingdb
 
       - name: Checkout topling/toplingdb
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ inputs.toplingdb_repo }}
           ref: ${{ inputs.toplingdb_ref }}
@@ -155,7 +155,7 @@ jobs:
         run: bash scripts/ci/install-nebula-build-deps.sh
 
       - name: Cache ccache (topling)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: /tmp/ccache/nebula-standalone-topling
           key: ${{ runner.os }}-ccache-topling-${{ hashFiles('deps/nebulagraph-toplingdb/**/CMakeLists.txt') }}
@@ -163,7 +163,7 @@ jobs:
             ${{ runner.os }}-ccache-topling-
 
       - name: Cache nebula third-party (topling)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: deps/nebulagraph-toplingdb/build/third-party/install
           key: ${{ runner.os }}-nebula-tp-topling-${{ hashFiles('deps/nebulagraph-toplingdb/third-party/install-third-party.sh') }}
@@ -171,10 +171,10 @@ jobs:
             ${{ runner.os }}-nebula-tp-topling-
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
