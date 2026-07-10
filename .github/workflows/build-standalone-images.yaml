@@ -26,7 +26,7 @@ on:
       toplingdb_ref:
         description: ToplingDB ref
         required: false
-        default: master
+        default: memtable_as_log_index
       update_latest:
         description: Also tag and push :latest
         type: boolean
@@ -61,6 +61,9 @@ jobs:
     if: ${{ inputs.build_rocksdb }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
+    env:
+      NEBULA_BUILD_JOBS: 2
+      CCACHE_DIR: /tmp/ccache/nebula-standalone-rocksdb
     steps:
       - name: Checkout nebula-bench
         uses: actions/checkout@v4
@@ -71,6 +74,26 @@ jobs:
           repository: ${{ inputs.rocksdb_repo }}
           ref: ${{ inputs.rocksdb_ref }}
           path: deps/nebulagraph
+
+      - name: Install Nebula build toolchain (host compile)
+        run: bash scripts/ci/install-nebula-build-deps.sh
+
+      - name: Add swap for host compile
+        run: |
+          set -euo pipefail
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
+      - name: Cache ccache (rocksdb)
+        uses: actions/cache@v4
+        with:
+          path: /tmp/ccache/nebula-standalone-rocksdb
+          key: ${{ runner.os }}-ccache-rocksdb-${{ hashFiles('deps/nebulagraph/**/CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-rocksdb-
 
       - name: Cache nebula third-party
         uses: actions/cache@v4
@@ -90,7 +113,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build, strip, push rocksdb image
+      - name: Compile on runner, docker package and push rocksdb image
         env:
           NEBULA_ROCKSDB_ROOT: ${{ github.workspace }}/deps/nebulagraph
           GHCR_OWNER: ${{ github.repository_owner }}
@@ -117,6 +140,9 @@ jobs:
     if: ${{ inputs.build_topling }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
+    env:
+      NEBULA_BUILD_JOBS: 2
+      CCACHE_DIR: /tmp/ccache/nebula-standalone-topling
     steps:
       - name: Checkout nebula-bench
         uses: actions/checkout@v4
@@ -134,6 +160,26 @@ jobs:
           repository: ${{ inputs.toplingdb_repo }}
           ref: ${{ inputs.toplingdb_ref }}
           path: deps/toplingdb
+
+      - name: Install Nebula build toolchain (host compile)
+        run: bash scripts/ci/install-nebula-build-deps.sh
+
+      - name: Add swap for host compile
+        run: |
+          set -euo pipefail
+          sudo fallocate -l 8G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
+      - name: Cache ccache (topling)
+        uses: actions/cache@v4
+        with:
+          path: /tmp/ccache/nebula-standalone-topling
+          key: ${{ runner.os }}-ccache-topling-${{ hashFiles('deps/nebulagraph-toplingdb/**/CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-topling-
 
       - name: Cache nebula third-party (topling)
         uses: actions/cache@v4
@@ -153,7 +199,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build, strip, push topling image
+      - name: Compile on runner, docker package and push topling image
         env:
           NEBULA_TOPLING_ROOT: ${{ github.workspace }}/deps/nebulagraph-toplingdb
           TOPLINGDB_ROOT: ${{ github.workspace }}/deps/toplingdb

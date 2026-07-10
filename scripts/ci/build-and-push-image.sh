@@ -43,6 +43,28 @@ prepare_install_conf() {
   mkdir -p "${install_dir}"/{logs,data,pids}
 }
 
+build_jobs() {
+  if [[ -n "${NEBULA_BUILD_JOBS:-}" ]]; then
+    echo "${NEBULA_BUILD_JOBS}"
+    return 0
+  fi
+  local n jobs
+  n="$(nproc)"
+  jobs=$(( n / 2 ))
+  if [[ "${jobs}" -lt 1 ]]; then
+    jobs=1
+  fi
+  echo "${jobs}"
+}
+
+cmake_build_standalone() {
+  local build_dir="$1"
+  local jobs
+  jobs="$(build_jobs)"
+  echo "=== cmake build target nebula-standalone (jobs=${jobs}) ==="
+  cmake --build "${build_dir}" --target nebula-standalone -j"${jobs}"
+}
+
 install_third_party() {
   local nebula_root="$1"
   local tp_prefix="${nebula_root}/build/third-party/install"
@@ -65,16 +87,14 @@ build_rocksdb() {
   install_third_party "${nebula_root}"
   mkdir -p "${build_dir}"
   cd "${build_dir}"
-  env -u EXTERNAL_TOPLINGDB_ROOT cmake "${nebula_root}" \
+  cmake "${nebula_root}" \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
     -DENABLE_STANDALONE_VERSION=ON \
     -DENABLE_TESTING=OFF \
     -DENABLE_WERROR=OFF \
-    -DUSE_TOPLINGDB=OFF \
     -DNEBULA_THIRDPARTY_ROOT="${tp}" \
     -DCMAKE_INSTALL_PREFIX="${install_dir}"
-  # Official tree may not have USE_TOPLINGDB; ignore if unknown.
-  cmake --build . -j"$(nproc)"
+  cmake_build_standalone "${build_dir}"
   rm -rf "${install_dir}"
   cmake --install .
   prepare_install_conf "${install_dir}"
@@ -93,7 +113,7 @@ build_toplingdb_shared() {
     return 0
   fi
   echo "Building ToplingDB shared_lib in ${tdb}"
-  make -C "${tdb}" shared_lib -j"$(nproc)"
+  make -C "${tdb}" shared_lib -j"$(build_jobs)"
   test -f "${tdb}/librocksdb.so"
 }
 
@@ -116,7 +136,7 @@ build_topling() {
     -DNEBULA_THIRDPARTY_ROOT="${tp}" \
     -DEXTERNAL_TOPLINGDB_ROOT="${tdb}" \
     -DCMAKE_INSTALL_PREFIX="${install_dir}"
-  cmake --build . -j"$(nproc)"
+  cmake_build_standalone "${build_dir}"
   rm -rf "${install_dir}"
   cmake --install .
   prepare_install_conf "${install_dir}"
