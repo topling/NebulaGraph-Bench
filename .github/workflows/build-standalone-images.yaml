@@ -154,6 +154,9 @@ jobs:
       - name: Install Nebula build toolchain (host compile)
         run: bash scripts/ci/install-nebula-build-deps.sh
 
+      - name: Install ToplingDB build deps
+        run: bash scripts/ci/install-toplingdb-build-deps.sh
+
       - name: Cache ccache (topling)
         uses: actions/cache@v5
         with:
