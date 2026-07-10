@@ -85,31 +85,19 @@ build_rocksdb() {
   bash "${SCRIPT_DIR}/strip-binaries.sh" "${install_dir}"
 }
 
-build_toplingdb_shared() {
-  local tdb="${TOPLINGDB_ROOT}"
-  if [[ ! -d "${tdb}" ]]; then
-    echo "TOPLINGDB_ROOT not found: ${tdb}" >&2
-    exit 1
-  fi
-  if [[ -f "${tdb}/librocksdb.so" ]]; then
-    echo "ToplingDB shared lib already built: ${tdb}/librocksdb.so"
-    return 0
-  fi
-  echo "Building ToplingDB shared_lib in ${tdb}"
-  make -C "${tdb}" shared_lib -j"$(nproc)"
-  test -f "${tdb}/librocksdb.so"
-}
-
 build_topling() {
   local nebula_root="${NEBULA_TOPLING_ROOT:?NEBULA_TOPLING_ROOT not set; checkout topling/nebula or set path}"
-  local tdb="${TOPLINGDB_ROOT:?TOPLINGDB_ROOT not set; checkout topling/toplingdb or set path}"
   local tp="${nebula_root}/build/third-party/install"
   local build_dir="${nebula_root}/build-standalone-topling"
   local install_dir="${nebula_root}/install-standalone-topling"
+  local toplingdb_dir="${build_dir}/toplingdb"
 
-  build_toplingdb_shared
   install_third_party "${nebula_root}"
   mkdir -p "${build_dir}"
+  # InstallToplingDB.cmake uses ${build_dir}/toplingdb; symlink a pinned checkout when provided.
+  if [[ -n "${TOPLINGDB_ROOT:-}" && -d "${TOPLINGDB_ROOT}" ]]; then
+    ln -sfn "$(cd "${TOPLINGDB_ROOT}" && pwd)" "${toplingdb_dir}"
+  fi
   cd "${build_dir}"
   cmake "${nebula_root}" \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
@@ -117,7 +105,6 @@ build_topling() {
     -DENABLE_TESTING=OFF \
     -DENABLE_WERROR=OFF \
     -DNEBULA_THIRDPARTY_ROOT="${tp}" \
-    -DEXTERNAL_TOPLINGDB_ROOT="${tdb}" \
     -DCMAKE_INSTALL_PREFIX="${install_dir}"
   cmake_build_standalone "${build_dir}"
   rm -rf "${install_dir}"
@@ -125,8 +112,7 @@ build_topling() {
   prepare_install_conf "${install_dir}"
 
   mkdir -p "${install_dir}/lib" "${install_dir}/etc/topling"
-  cp -a "${tdb}/librocksdb.so"* "${install_dir}/lib/"
-  # Copy Easy Migrate yamls from nebula tree
+  cp -a "${toplingdb_dir}/librocksdb.so"* "${install_dir}/lib/"
   cp -f "${nebula_root}/conf/topling-mimic-rocksdb.yaml" "${install_dir}/etc/topling/"
   cp -f "${nebula_root}/conf/topling-enterprise.yaml" "${install_dir}/etc/topling/"
 
