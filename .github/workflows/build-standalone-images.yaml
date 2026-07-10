@@ -63,7 +63,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 300
     env:
-      NEBULA_BUILD_JOBS: 2
       CCACHE_DIR: /tmp/ccache/nebula-standalone-rocksdb
     steps:
       - name: Checkout nebula-bench
@@ -142,7 +141,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 300
     env:
-      NEBULA_BUILD_JOBS: 2
       CCACHE_DIR: /tmp/ccache/nebula-standalone-topling
     steps:
       - name: Checkout nebula-bench

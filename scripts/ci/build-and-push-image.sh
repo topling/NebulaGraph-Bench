@@ -43,26 +43,10 @@ prepare_install_conf() {
   mkdir -p "${install_dir}"/{logs,data,pids}
 }
 
-build_jobs() {
-  if [[ -n "${NEBULA_BUILD_JOBS:-}" ]]; then
-    echo "${NEBULA_BUILD_JOBS}"
-    return 0
-  fi
-  local n jobs
-  n="$(nproc)"
-  jobs=$(( n / 2 ))
-  if [[ "${jobs}" -lt 1 ]]; then
-    jobs=1
-  fi
-  echo "${jobs}"
-}
-
 cmake_build_standalone() {
   local build_dir="$1"
-  local jobs
-  jobs="$(build_jobs)"
-  echo "=== cmake build target nebula-standalone (jobs=${jobs}) ==="
-  cmake --build "${build_dir}" --target nebula-standalone -j"${jobs}"
+  echo "=== cmake build target nebula-standalone (jobs=$(nproc)) ==="
+  cmake --build "${build_dir}" --target nebula-standalone -j"$(nproc)"
 }
 
 install_third_party() {
@@ -112,7 +96,7 @@ build_toplingdb_shared() {
     return 0
   fi
   echo "Building ToplingDB shared_lib in ${tdb}"
-  make -C "${tdb}" shared_lib -j"$(build_jobs)"
+  make -C "${tdb}" shared_lib -j"$(nproc)"
   test -f "${tdb}/librocksdb.so"
 }
 
