@@ -1,0 +1,177 @@
+name: Build standalone images
+
+on:
+  workflow_dispatch:
+    inputs:
+      rocksdb_repo:
+        description: Official NebulaGraph repository (owner/name)
+        required: false
+        default: vesoft-inc/nebula
+      rocksdb_ref:
+        description: Official NebulaGraph ref
+        required: false
+        default: master
+      topling_repo:
+        description: Topling NebulaGraph repository (owner/name)
+        required: false
+        default: topling/nebula
+      topling_ref:
+        description: Topling NebulaGraph ref
+        required: false
+        default: toplingdb-bench
+      toplingdb_repo:
+        description: ToplingDB repository (owner/name)
+        required: false
+        default: topling/toplingdb
+      toplingdb_ref:
+        description: ToplingDB ref
+        required: false
+        default: master
+      update_latest:
+        description: Also tag and push :latest
+        type: boolean
+        required: false
+        default: true
+      build_rocksdb:
+        description: Build rocksdb image
+        type: boolean
+        required: false
+        default: true
+      build_topling:
+        description: Build topling image
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-standalone-images-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  BENCH_ROOT: ${{ github.workspace }}
+  GHCR_OWNER: ${{ github.repository_owner }}
+
+jobs:
+  build-rocksdb:
+    name: build-rocksdb
+    if: ${{ inputs.build_rocksdb }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout nebula-bench
+        uses: actions/checkout@v4
+
+      - name: Checkout official NebulaGraph
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.rocksdb_repo }}
+          ref: ${{ inputs.rocksdb_ref }}
+          path: deps/nebulagraph
+
+      - name: Cache nebula third-party
+        uses: actions/cache@v4
+        with:
+          path: deps/nebulagraph/build/third-party/install
+          key: ${{ runner.os }}-nebula-tp-rocksdb-${{ hashFiles('deps/nebulagraph/third-party/install-third-party.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-nebula-tp-rocksdb-
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build, strip, push rocksdb image
+        env:
+          NEBULA_ROCKSDB_ROOT: ${{ github.workspace }}/deps/nebulagraph
+          GHCR_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          EXTRA=(--push)
+          if [[ "${{ inputs.update_latest }}" == "true" ]]; then
+            EXTRA+=(--latest)
+          fi
+          bash scripts/ci/build-and-push-image.sh rocksdb "${EXTRA[@]}"
+          SHA_TAG="$(git -C deps/nebulagraph rev-parse --short HEAD)"
+          IMAGE="ghcr.io/${GHCR_OWNER}/nebula-standalone-rocksdb:${SHA_TAG}"
+          docker rmi -f "${IMAGE}" 2>/dev/null || true
+          docker pull "${IMAGE}"
+          if [[ "${{ inputs.update_latest }}" == "true" ]]; then
+            LATEST="ghcr.io/${GHCR_OWNER}/nebula-standalone-rocksdb:latest"
+            docker rmi -f "${LATEST}" 2>/dev/null || true
+            docker pull "${LATEST}"
+          fi
+          docker images | head -20
+
+  build-topling:
+    name: build-topling
+    if: ${{ inputs.build_topling }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout nebula-bench
+        uses: actions/checkout@v4
+
+      - name: Checkout topling/nebula
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.topling_repo }}
+          ref: ${{ inputs.topling_ref }}
+          path: deps/nebulagraph-toplingdb
+
+      - name: Checkout topling/toplingdb
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.toplingdb_repo }}
+          ref: ${{ inputs.toplingdb_ref }}
+          path: deps/toplingdb
+
+      - name: Cache nebula third-party (topling)
+        uses: actions/cache@v4
+        with:
+          path: deps/nebulagraph-toplingdb/build/third-party/install
+          key: ${{ runner.os }}-nebula-tp-topling-${{ hashFiles('deps/nebulagraph-toplingdb/third-party/install-third-party.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-nebula-tp-topling-
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build, strip, push topling image
+        env:
+          NEBULA_TOPLING_ROOT: ${{ github.workspace }}/deps/nebulagraph-toplingdb
+          TOPLINGDB_ROOT: ${{ github.workspace }}/deps/toplingdb
+          GHCR_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          EXTRA=(--push)
+          if [[ "${{ inputs.update_latest }}" == "true" ]]; then
+            EXTRA+=(--latest)
+          fi
+          bash scripts/ci/build-and-push-image.sh topling "${EXTRA[@]}"
+          SHA_TAG="$(git -C deps/nebulagraph-toplingdb rev-parse --short HEAD)"
+          IMAGE="ghcr.io/${GHCR_OWNER}/nebula-standalone-topling:${SHA_TAG}"
+          docker rmi -f "${IMAGE}" 2>/dev/null || true
+          docker pull "${IMAGE}"
+          if [[ "${{ inputs.update_latest }}" == "true" ]]; then
+            LATEST="ghcr.io/${GHCR_OWNER}/nebula-standalone-topling:latest"
+            docker rmi -f "${LATEST}" 2>/dev/null || true
+            docker pull "${LATEST}"
+          fi
+          docker images | head -20

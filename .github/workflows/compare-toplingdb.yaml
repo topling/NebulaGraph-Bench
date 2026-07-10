@@ -1,0 +1,116 @@
+name: Compare ToplingDB bench
+
+on:
+  workflow_dispatch:
+    inputs:
+      rocksdb_image:
+        description: GHCR image for official rocksdb standalone
+        required: false
+        default: ghcr.io/topling/nebula-standalone-rocksdb:latest
+      topling_image:
+        description: GHCR image for topling standalone (shared by conservative/enterprise)
+        required: false
+        default: ghcr.io/topling/nebula-standalone-topling:latest
+      scale_factor:
+        description: LDBC scale factor
+        required: false
+        default: "0.1"
+      stress_args:
+        description: Args passed to run.py stress run --args=
+        required: false
+        default: "-d 3s"
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: compare-toplingdb-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  BENCH_ROOT: ${{ github.workspace }}
+
+jobs:
+  bench:
+    name: ${{ matrix.profile }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [rocksdb, conservative, enterprise]
+    steps:
+      - name: Checkout nebula-bench
+        uses: actions/checkout@v4
+
+      - name: Cache Maven
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml', 'scripts/**') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+
+      - name: Set up JDK 1.8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "8"
+
+      - name: Set up Maven
+        uses: stCarolas/setup-maven@v4
+        with:
+          maven-version: 3.5.4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.20.3"
+
+      - name: Cache Hadoop
+        uses: actions/cache@v4
+        with:
+          path: target/data/hadoop-3.2.1.tar.gz
+          key: ${{ runner.os }}-hadoop-${{ hashFiles('scripts/generate-data.sh') }}
+
+      - name: Install bench deps (importer + k6)
+        env:
+          CGO_ENABLED: "0"
+          INSTALL_SYSTEM_DEPS: "1"
+        run: bash scripts/ci/install-bench-deps.sh
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull image and run profile bench
+        env:
+          ROCKSDB_IMAGE: ${{ inputs.rocksdb_image }}
+          TOPLING_IMAGE: ${{ inputs.topling_image }}
+          SCALE_FACTOR: ${{ inputs.scale_factor }}
+          STRESS_ARGS: ${{ inputs.stress_args }}
+        run: |
+          set -euo pipefail
+          # Guard: no nebula compile in this workflow
+          if grep -RInE 'cmake|make build|docker build' scripts/ci/run-profile-bench.sh >/dev/null; then
+            echo "unexpected compile hooks in run-profile-bench.sh" >&2
+            exit 1
+          fi
+          bash scripts/ci/run-profile-bench.sh "${{ matrix.profile }}"
+
+      - name: Upload profile output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-${{ matrix.profile }}
+          path: output/${{ matrix.profile }}-*
+          if-no-files-found: warn

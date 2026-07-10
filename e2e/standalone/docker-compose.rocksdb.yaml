@@ -1,0 +1,21 @@
+services:
+  nebula-standalone:
+    image: ${ROCKSDB_IMAGE:-ghcr.io/topling/nebula-standalone-rocksdb:latest}
+    container_name: nebula-standalone-rocksdb
+    ports:
+      - "9669:9669"
+      - "19669:19669"
+    volumes:
+      - rocksdb-data:/usr/local/nebula/data
+      - rocksdb-logs:/usr/local/nebula/logs
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/9669'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 15s
+    restart: "no"
+
+volumes:
+  rocksdb-data:
+  rocksdb-logs:

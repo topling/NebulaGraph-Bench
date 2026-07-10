@@ -272,3 +272,60 @@ CREATE EDGE IF NOT EXISTS `KNOWS`(`creationDate` datetime);
 CREATE TAG INDEX IF NOT EXISTS `person_first_name_idx` on `Person`(firstName(10));
 CREATE EDGE INDEX IF NOT EXISTS `like_creationDate_idx` on `LIKES`(creationDate);
 ```
+
+## ToplingDB 对比 CI（standalone Docker）
+
+本仓库提供两套**仅手工触发**的 GitHub Actions workflow，用于对比：
+
+| Profile | 镜像 | 说明 |
+|---------|------|------|
+| `rocksdb` | `ghcr.io/<owner>/nebula-standalone-rocksdb` | 官方 `vesoft-inc/nebula` standalone |
+| `conservative` | `ghcr.io/<owner>/nebula-standalone-topling` | Topling + `topling-mimic-rocksdb.yaml` |
+| `enterprise` | 同上 topling 镜像 | Topling + `topling-enterprise.yaml` |
+
+构建与压测拆分：编译很慢，压测 workflow **不编译**，只 `docker pull` 已发布的 GHCR Package。
+
+### 1. 构建并推送镜像（手工）
+
+Actions → **Build standalone images**（`build-standalone-images.yaml`）→ Run workflow。
+
+- 默认源：`vesoft-inc/nebula@master`、`topling/nebula@toplingdb-bench`、`topling/toplingdb`
+- 构建后对二进制与 `*.so` 执行 `strip`，再 push 到 GHCR
+- 可选同时打 `:latest`；job summary 会打印完整镜像引用
+
+权限：仓库需允许 Actions 写 Packages（`packages: write`）。若 Package 为 private，同 org 的压测 job 用 `GITHUB_TOKEN` 即可读。
+
+### 2. 压测（手工）
+
+Actions → **Compare ToplingDB bench**（`compare-toplingdb.yaml`）→ Run workflow。
+
+- 填写上一步的 `rocksdb_image` / `topling_image`（默认 `...:latest`）
+- 默认 LDBC `SF=0.1`，`stress --args='-d 3s'`
+- **未传 `-u` 时**会对每个场景跑默认五档 VU：`50,100,200,300,500`（与现有 `nebula-bench.yaml` 一致）
+- 每个 matrix 分片内先装依赖再 pull/压测；产物上传为 `bench-<profile>` artifact
+
+### 本地兄弟目录
+
+在 `nebula-bench` 旁放置源码时可直接构建（无需先 checkout 到 `deps/`）：
+
+```text
+../nebulagraph              # 官方或对应 rocksdb 源码
+../nebulagraph-toplingdb    # topling/nebula
+../toplingdb                # topling/toplingdb
+```
+
+```bash
+# 仅构建本地镜像（不 push）
+bash scripts/ci/build-and-push-image.sh rocksdb
+bash scripts/ci/build-and-push-image.sh topling
+
+# 压测某一 profile（需本机已有对应镜像 tag）
+export ROCKSDB_IMAGE=ghcr.io/topling/nebula-standalone-rocksdb:<tag>
+export TOPLING_IMAGE=ghcr.io/topling/nebula-standalone-topling:<tag>
+bash scripts/ci/install-bench-deps.sh
+bash scripts/ci/run-profile-bench.sh rocksdb
+bash scripts/ci/run-profile-bench.sh conservative
+bash scripts/ci/run-profile-bench.sh enterprise
+```
+
+相关文件：`docker/standalone/`、`e2e/standalone/`、`scripts/ci/`。

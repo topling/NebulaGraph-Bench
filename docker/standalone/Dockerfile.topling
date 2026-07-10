@@ -1,0 +1,26 @@
+# Runtime image for NebulaGraph standalone (ToplingDB shared build).
+# Build context must contain prepared install/ after strip, including:
+#   bin/nebula-standalone, etc/nebula-standalone.conf,
+#   etc/topling/topling-*.yaml, lib/librocksdb.so (+ deps)
+FROM centos:7
+
+RUN groupadd -r nebula && useradd -r -g nebula -d /usr/local/nebula nebula
+
+COPY install/ /usr/local/nebula/
+COPY entrypoint-topling.sh /usr/local/nebula/bin/entrypoint.sh
+
+RUN chmod +x /usr/local/nebula/bin/entrypoint.sh /usr/local/nebula/bin/nebula-standalone \
+  && mkdir -p /usr/local/nebula/{logs,data,pids} \
+  && test -f /usr/local/nebula/etc/nebula-standalone.conf \
+  && test -f /usr/local/nebula/etc/topling/topling-mimic-rocksdb.yaml \
+  && test -f /usr/local/nebula/etc/topling/topling-enterprise.yaml \
+  && test -e /usr/local/nebula/lib/librocksdb.so \
+  && chown -R nebula:nebula /usr/local/nebula
+
+ENV LD_LIBRARY_PATH=/usr/local/nebula/lib
+WORKDIR /usr/local/nebula
+USER nebula
+
+EXPOSE 9669 9559 9779 19669 19559 19779
+
+ENTRYPOINT ["/usr/local/nebula/bin/entrypoint.sh"]
