@@ -54,6 +54,7 @@ concurrency:
 env:
   BENCH_ROOT: ${{ github.workspace }}
   GHCR_OWNER: ${{ github.repository_owner }}
+  CXXFLAGS: -Wno-interference-size
 
 jobs:
   build-rocksdb:

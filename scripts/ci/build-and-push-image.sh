@@ -99,7 +99,6 @@ build_rocksdb() {
   cmake --install .
   prepare_install_conf "${install_dir}"
   bash "${SCRIPT_DIR}/strip-binaries.sh" "${install_dir}"
-  echo "${install_dir}"
 }
 
 build_toplingdb_shared() {
@@ -148,7 +147,6 @@ build_topling() {
   cp -f "${nebula_root}/conf/topling-enterprise.yaml" "${install_dir}/etc/topling/"
 
   bash "${SCRIPT_DIR}/strip-binaries.sh" "${install_dir}"
-  echo "${install_dir}"
 }
 
 docker_package() {
@@ -210,9 +208,11 @@ docker_package() {
 main() {
   local install_dir
   if [[ "${VARIANT}" == "rocksdb" ]]; then
-    install_dir="$(build_rocksdb)"
+    install_dir="${NEBULA_ROCKSDB_ROOT:?NEBULA_ROCKSDB_ROOT not set}/install-standalone-rocksdb"
+    build_rocksdb
   else
-    install_dir="$(build_topling)"
+    install_dir="${NEBULA_TOPLING_ROOT:?NEBULA_TOPLING_ROOT not set}/install-standalone-topling"
+    build_topling
   fi
   docker_package "${VARIANT}" "${install_dir}"
 }
