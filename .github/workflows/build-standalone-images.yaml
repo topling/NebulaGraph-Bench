@@ -78,15 +78,6 @@ jobs:
       - name: Install Nebula build toolchain (host compile)
         run: bash scripts/ci/install-nebula-build-deps.sh
 
-      - name: Add swap for host compile
-        run: |
-          set -euo pipefail
-          sudo fallocate -l 8G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          free -h
-
       - name: Cache ccache (rocksdb)
         uses: actions/cache@v4
         with:
@@ -162,15 +153,6 @@ jobs:
 
       - name: Install Nebula build toolchain (host compile)
         run: bash scripts/ci/install-nebula-build-deps.sh
-
-      - name: Add swap for host compile
-        run: |
-          set -euo pipefail
-          sudo fallocate -l 8G /swapfile
-          sudo chmod 600 /swapfile
-          sudo mkswap /swapfile
-          sudo swapon /swapfile
-          free -h
 
       - name: Cache ccache (topling)
         uses: actions/cache@v4
