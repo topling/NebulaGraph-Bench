@@ -49,6 +49,12 @@ cmake_build_standalone() {
   cmake --build "${build_dir}" --target nebula-standalone -j"$(nproc)"
 }
 
+cmake_install_standalone() {
+  local build_dir="$1"
+  echo "=== cmake install standalone (components graph, common) ==="
+  cmake --install "${build_dir}" --component graph --component common
+}
+
 install_third_party() {
   local nebula_root="$1"
   local tp_prefix="${nebula_root}/build/third-party/install"
@@ -80,7 +86,7 @@ build_rocksdb() {
     -DCMAKE_INSTALL_PREFIX="${install_dir}"
   cmake_build_standalone "${build_dir}"
   rm -rf "${install_dir}"
-  cmake --install .
+  cmake_install_standalone .
   prepare_install_conf "${install_dir}"
   bash "${SCRIPT_DIR}/strip-binaries.sh" "${install_dir}"
 }
@@ -108,7 +114,7 @@ build_topling() {
     -DCMAKE_INSTALL_PREFIX="${install_dir}"
   cmake_build_standalone "${build_dir}"
   rm -rf "${install_dir}"
-  cmake --install .
+  cmake_install_standalone .
   prepare_install_conf "${install_dir}"
 
   mkdir -p "${install_dir}/lib" "${install_dir}/etc/topling"
