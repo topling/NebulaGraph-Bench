@@ -52,7 +52,8 @@ cmake_build_standalone() {
 cmake_install_standalone() {
   local build_dir="$1"
   echo "=== cmake install standalone (components graph, common) ==="
-  cmake --install "${build_dir}" --component graph --component common
+  cmake --install "${build_dir}" --component common
+  cmake --install "${build_dir}" --component graph
 }
 
 build_rocksdb() {
