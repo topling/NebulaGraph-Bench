@@ -13,7 +13,6 @@ if command -v apt-get >/dev/null 2>&1; then
     build-essential \
     cmake \
     ninja-build \
-    ccache \
     git \
     curl \
     wget \
@@ -36,7 +35,7 @@ if command -v apt-get >/dev/null 2>&1; then
 elif command -v yum >/dev/null 2>&1; then
   sudo yum install -y \
     gcc gcc-c++ make cmake3 git curl wget \
-    ccache flex bison openssl-devel readline-devel zlib-devel \
+    flex bison openssl-devel readline-devel zlib-devel \
     snappy-devel lz4-devel libzstd-devel gflags-devel glog-devel \
     libevent-devel double-conversion-devel boost-devel
 else
@@ -45,5 +44,4 @@ else
 fi
 
 command -v cmake >/dev/null
-command -v ccache >/dev/null
 echo "nebula build deps ready"

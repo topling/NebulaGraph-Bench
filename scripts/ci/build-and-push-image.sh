@@ -55,48 +55,11 @@ cmake_install_standalone() {
   cmake --install "${build_dir}" --component graph --component common
 }
 
-# graph component install often skips bin/ and etc/ for standalone builds; stage explicitly.
-stage_standalone_graph_artifacts() {
-  local nebula_root="$1"
-  local build_dir="$2"
-  local install_dir="$3"
-  local binary="${build_dir}/bin/nebula-standalone"
-  local conf_src="${nebula_root}/conf/nebula-standalone.conf.default"
-
-  if [[ ! -f "${binary}" ]]; then
-    echo "missing built standalone binary: ${binary}" >&2
-    exit 1
-  fi
-  if [[ ! -f "${conf_src}" ]]; then
-    echo "missing standalone conf source: ${conf_src}" >&2
-    exit 1
-  fi
-
-  echo "=== stage standalone graph artifacts (bin, etc) ==="
-  install -Dm755 "${binary}" "${install_dir}/bin/nebula-standalone"
-  install -Dm644 "${conf_src}" "${install_dir}/etc/nebula-standalone.conf.default"
-}
-
-install_third_party() {
-  local nebula_root="$1"
-  local tp_prefix="${nebula_root}/build/third-party/install"
-  if [[ -d "${tp_prefix}/include" ]]; then
-    echo "third-party already present: ${tp_prefix}"
-    return 0
-  fi
-  echo "Installing nebula third-party into ${tp_prefix}"
-  mkdir -p "${nebula_root}/build/third-party"
-  # install-third-party.sh downloads a prebuilt archive matching host libc/gcc
-  (cd "${nebula_root}/third-party" && ./install-third-party.sh --prefix="${tp_prefix}")
-}
-
 build_rocksdb() {
   local nebula_root="${NEBULA_ROCKSDB_ROOT:?NEBULA_ROCKSDB_ROOT not set; checkout vesoft-inc/nebula or set path}"
-  local tp="${nebula_root}/build/third-party/install"
   local build_dir="${nebula_root}/build-standalone-rocksdb"
   local install_dir="${nebula_root}/install-standalone-rocksdb"
 
-  install_third_party "${nebula_root}"
   mkdir -p "${build_dir}"
   cd "${build_dir}"
   cmake "${nebula_root}" \
@@ -104,24 +67,20 @@ build_rocksdb() {
     -DENABLE_STANDALONE_VERSION=ON \
     -DENABLE_TESTING=OFF \
     -DENABLE_WERROR=OFF \
-    -DNEBULA_THIRDPARTY_ROOT="${tp}" \
     -DCMAKE_INSTALL_PREFIX="${install_dir}"
   cmake_build_standalone "${build_dir}"
   rm -rf "${install_dir}"
-  cmake_install_standalone .
-  stage_standalone_graph_artifacts "${nebula_root}" "${build_dir}" "${install_dir}"
+  cmake_install_standalone "${build_dir}"
   prepare_install_conf "${install_dir}"
   bash "${SCRIPT_DIR}/strip-binaries.sh" "${install_dir}"
 }
 
 build_topling() {
   local nebula_root="${NEBULA_TOPLING_ROOT:?NEBULA_TOPLING_ROOT not set; checkout topling/nebula or set path}"
-  local tp="${nebula_root}/build/third-party/install"
   local build_dir="${nebula_root}/build-standalone-topling"
   local install_dir="${nebula_root}/install-standalone-topling"
   local toplingdb_dir="${build_dir}/toplingdb"
 
-  install_third_party "${nebula_root}"
   mkdir -p "${build_dir}"
   # InstallToplingDB.cmake uses ${build_dir}/toplingdb; symlink a pinned checkout when provided.
   if [[ -n "${TOPLINGDB_ROOT:-}" && -d "${TOPLINGDB_ROOT}" ]]; then
@@ -133,16 +92,13 @@ build_topling() {
     -DENABLE_STANDALONE_VERSION=ON \
     -DENABLE_TESTING=OFF \
     -DENABLE_WERROR=OFF \
-    -DNEBULA_THIRDPARTY_ROOT="${tp}" \
     -DCMAKE_INSTALL_PREFIX="${install_dir}"
   cmake_build_standalone "${build_dir}"
   rm -rf "${install_dir}"
-  cmake_install_standalone .
-  stage_standalone_graph_artifacts "${nebula_root}" "${build_dir}" "${install_dir}"
+  cmake_install_standalone "${build_dir}"
   prepare_install_conf "${install_dir}"
 
-  mkdir -p "${install_dir}/lib" "${install_dir}/etc/topling"
-  cp -a "${toplingdb_dir}/librocksdb.so"* "${install_dir}/lib/"
+  mkdir -p "${install_dir}/etc/topling"
   cp -f "${nebula_root}/conf/topling-mimic-rocksdb.yaml" "${install_dir}/etc/topling/"
   cp -f "${nebula_root}/conf/topling-enterprise.yaml" "${install_dir}/etc/topling/"
 
