@@ -19,6 +19,10 @@ fi
 python3 -m pip install --upgrade pip
 python3 -m pip install -r requirements.txt
 
+if command -v mvn >/dev/null 2>&1; then
+  bash "${BENCH_ROOT}/scripts/ci/bootstrap-dsol-xml-maven.sh"
+fi
+
 export CGO_ENABLED="${CGO_ENABLED:-0}"
 if [[ ! -x "${BENCH_ROOT}/scripts/k6" ]] || [[ ! -x "${BENCH_ROOT}/scripts/nebula-importer" ]]; then
   echo "Building importer + k6 via scripts/setup.sh"
