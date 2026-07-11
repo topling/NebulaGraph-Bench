@@ -48,7 +48,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml', 'scripts/**') }}
+          key: ${{ runner.os }}-maven-${{ hashFiles('scripts/vendor/**', 'scripts/ci/bootstrap-dsol-xml-maven.sh') }}
           restore-keys: |
             ${{ runner.os }}-maven-
 
@@ -67,6 +67,9 @@ jobs:
         uses: stCarolas/setup-maven@v5.1
         with:
           maven-version: 3.5.4
+
+      - name: Bootstrap LDBC datagen Maven deps
+        run: bash scripts/ci/bootstrap-dsol-xml-maven.sh
 
       - name: Set up Go
         uses: actions/setup-go@v6
