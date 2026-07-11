@@ -173,9 +173,17 @@ class DumpController(object):
             },
         )
 
+    def _load_benchmark_meta(self, folder):
+        meta_path = Path(folder) / "benchmark-meta.json"
+        if not meta_path.is_file():
+            return None
+        with open(meta_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
     def export_triple_comparison(self, profile_folders, output):
         order = ("rocksdb", "conservative", "enterprise")
         profiles = []
+        metas = []
         for label in order:
             folder = profile_folders.get(label)
             if not folder:
@@ -183,14 +191,19 @@ class DumpController(object):
             data = self.get_data(folder)
             if not data:
                 raise Exception("empty benchmark data for profile: %s" % label)
-            profiles.append({"label": label, "data": data})
+            meta = self._load_benchmark_meta(folder)
+            profiles.append({"label": label, "data": data, "meta": meta})
+            if meta:
+                metas.append(meta)
         if len(profiles) < 2:
             raise Exception("need at least two profiles for triple comparison")
+        shared_meta = metas[0] if metas else None
         utils.jinja_dump(
             "comparison-triple.html.j2",
             output,
             {
                 "profiles": Markup(json.dumps(profiles)),
+                "shared_meta": Markup(json.dumps(shared_meta)),
                 "server": False,
             },
         )

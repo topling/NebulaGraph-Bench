@@ -13,6 +13,8 @@
 		.profile-enterprise { color: #5cb85c; }
 		.summary-table { font-size: 85%; margin-top: 24px; }
 		.summary-table th, .summary-table td { white-space: nowrap; }
+		.meta-panel { font-size: 90%; margin: 16px 0 24px; }
+		.meta-panel table { font-size: 85%; }
 	</style>
 </head>
 
@@ -20,6 +22,7 @@
 	<div class="container-fluid">
 		<div id="title" class="h3">ToplingDB Triple Benchmark Comparison</div>
 		<p class="text-muted">rocksdb / conservative / enterprise</p>
+		<div id="meta" class="meta-panel"></div>
 		<div id="report" style="margin-top: 15px;font-size: 90%;"></div>
 		<div id="summary" class="summary-table"></div>
 
@@ -30,6 +33,78 @@
 			conservative: "#f0ad4e",
 			enterprise: "#5cb85c",
 		};
+
+		function formatBytes(n) {
+			if (n == null || n === "-" || isNaN(n)) {
+				return "-";
+			}
+			const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+			let v = Number(n);
+			let i = 0;
+			while (v >= 1024 && i < units.length - 1) {
+				v /= 1024;
+				i++;
+			}
+			return (Number.isInteger(v) ? v : v.toFixed(2)) + " " + units[i];
+		}
+
+		function build_meta_panel(sharedMeta, profiles) {
+			if (!sharedMeta && (!profiles || profiles.length === 0)) {
+				return;
+			}
+			const meta = sharedMeta || (profiles[0] && profiles[0].meta) || null;
+			if (!meta) {
+				return;
+			}
+			let html = "<h4>Benchmark metadata</h4>";
+			html += "<table class=\"table table-sm table-bordered\">";
+			html += "<tbody>";
+			html += `<tr><th>LDBC scale factor</th><td>${meta.scale_factor ?? "-"}</td></tr>`;
+			html += `<tr><th>Stress args</th><td><code>${meta.stress_args ?? "-"}</code></td></tr>`;
+			html += `<tr><th>Replica factor</th><td>${meta.nebula_replica_factor ?? "-"}</td></tr>`;
+			if (meta.ldbc_data && !meta.ldbc_data.error) {
+				html += `<tr><th>Vertex rows (LDBC CSV)</th><td>${meta.ldbc_data.vertex_row_count ?? "-"}</td></tr>`;
+				html += `<tr><th>Edge rows (LDBC CSV)</th><td>${meta.ldbc_data.edge_row_count ?? "-"}</td></tr>`;
+			}
+			html += "</tbody></table>";
+
+			html += "<h5 class=\"mt-3\">Storage footprint (per profile)</h5>";
+			html += "<p class=\"text-muted small\">声明尺寸 = du -sb（逻辑文件大小）；实际尺寸 = du -sk（磁盘块占用）</p>";
+			html += "<div class=\"table-responsive\"><table class=\"table table-sm table-bordered\">";
+			html += "<thead><tr><th>Profile</th><th>Data dir 声明</th><th>Data dir 实际</th><th>Storage 声明</th><th>Storage 实际</th><th>Meta 声明</th><th>Meta 实际</th></tr></thead><tbody>";
+			for (const p of profiles) {
+				const m = p.meta || {};
+				const s = m.storage || {};
+				html += `<tr class="profile-${p.label}">`;
+				html += `<td>${p.label}</td>`;
+				html += `<td>${formatBytes(s.data_dir_apparent_bytes)}</td>`;
+				html += `<td>${formatBytes(s.data_dir_disk_bytes)}</td>`;
+				html += `<td>${formatBytes(s.storage_apparent_bytes)}</td>`;
+				html += `<td>${formatBytes(s.storage_disk_bytes)}</td>`;
+				html += `<td>${formatBytes(s.meta_apparent_bytes)}</td>`;
+				html += `<td>${formatBytes(s.meta_disk_bytes)}</td>`;
+				html += "</tr>";
+			}
+			html += "</tbody></table></div>";
+
+			const toplingProfiles = profiles.filter(p => p.meta && p.meta.topling_runtime);
+			if (toplingProfiles.length > 0) {
+				html += "<h5 class=\"mt-3\">ToplingDB easy conf</h5>";
+				html += "<div class=\"table-responsive\"><table class=\"table table-sm table-bordered\">";
+				html += "<thead><tr><th>Profile</th><th>TOPLINGDB_EASY_MIGRATE_CONF</th><th>ROCKSDB_KICK_OUT_OPTIONS_FILE</th><th>TOPLINGDB_GetContext_sampling</th></tr></thead><tbody>";
+				for (const p of toplingProfiles) {
+					const t = p.meta.topling_runtime;
+					html += `<tr class="profile-${p.label}">`;
+					html += `<td>${p.label}</td>`;
+					html += `<td><code>${t.toplingdb_easy_migrate_conf ?? "-"}</code></td>`;
+					html += `<td>${t.rocksdb_kick_out_options_file ?? "-"}</td>`;
+					html += `<td>${t.toplingdb_getcontext_sampling ?? "-"}</td>`;
+					html += "</tr>";
+				}
+				html += "</tbody></table></div>";
+			}
+			document.getElementById("meta").innerHTML = html;
+		}
 
 		function findCase(profileData, caseName) {
 			for (let i = 0; i < profileData.length; i++) {
@@ -280,6 +355,8 @@
 		}
 
 		let profiles = {{ profiles }};
+		let sharedMeta = {{ shared_meta }};
+		build_meta_panel(sharedMeta, profiles);
 		for (const caseName of collectCaseNames(profiles)) {
 			draw_case(profiles, caseName);
 		}

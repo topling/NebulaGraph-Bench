@@ -8,8 +8,8 @@ PROFILE="${1:?usage: run-profile-bench.sh rocksdb|conservative|enterprise}"
 BENCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${BENCH_ROOT}"
 
-SCALE="${SCALE_FACTOR:-0.1}"
-STRESS_ARGS="${STRESS_ARGS:--d 3s}"
+SCALE="${SCALE_FACTOR:-1}"
+STRESS_ARGS="${STRESS_ARGS:--d 30s}"
 COMPOSE_DIR="${BENCH_ROOT}/e2e/standalone"
 OUT_STAMP="$(date +%Y%m%d_%H%M%S)"
 RESULT_DIR="${BENCH_ROOT}/output/${PROFILE}-${OUT_STAMP}"
@@ -26,6 +26,16 @@ case "${PROFILE}" in
     COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.topling.yaml"
     export TOPLING_IMAGE
     export TOPLING_MIGRATE_PROFILE="${PROFILE}"
+    case "${PROFILE}" in
+      conservative)
+        export TOPLINGDB_EASY_MIGRATE_CONF="/usr/local/nebula/etc/topling/topling-mimic-rocksdb.yaml"
+        ;;
+      enterprise)
+        export TOPLINGDB_EASY_MIGRATE_CONF="/usr/local/nebula/etc/topling/topling-enterprise.yaml"
+        ;;
+    esac
+    export ROCKSDB_KICK_OUT_OPTIONS_FILE="${ROCKSDB_KICK_OUT_OPTIONS_FILE:-1}"
+    export TOPLINGDB_GetContext_sampling="${TOPLINGDB_GetContext_sampling:-kNone}"
     ;;
   *)
     echo "unknown profile: ${PROFILE}" >&2
@@ -124,4 +134,17 @@ if [[ -n "${latest}" ]] && [[ -d "${latest}" ]]; then
 fi
 
 compose logs > "${RESULT_DIR}/compose.log" 2>&1 || true
+
+echo "=== collect engine logs and storage stats ==="
+bash "${BENCH_ROOT}/scripts/ci/collect-profile-artifacts.sh" \
+  "${RESULT_DIR}" "${COMPOSE_FILE}"
+
+python3 "${BENCH_ROOT}/scripts/ci/write-benchmark-meta.py" \
+  --result-dir "${RESULT_DIR}" \
+  --profile "${PROFILE}" \
+  --scale-factor "${SCALE}" \
+  --stress-args "${STRESS_ARGS}" \
+  --rocksdb-image "${ROCKSDB_IMAGE}" \
+  --topling-image "${TOPLING_IMAGE}"
+
 echo "RESULT_DIR=${RESULT_DIR}"

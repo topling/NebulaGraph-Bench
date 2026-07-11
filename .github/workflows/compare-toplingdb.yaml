@@ -14,11 +14,11 @@ on:
       scale_factor:
         description: LDBC scale factor
         required: false
-        default: "0.1"
+        default: "1"
       stress_args:
         description: Args passed to run.py stress run --args=
         required: false
-        default: "-d 3s"
+        default: "-d 30s"
 
 permissions:
   contents: read
