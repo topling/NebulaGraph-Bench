@@ -93,6 +93,7 @@ sleep 5
 
 mkdir -p "${RESULT_DIR}"
 export NEBULA_ADDRESS="${NEBULA_ADDRESS:-127.0.0.1:9669}"
+export NEBULA_REPLICA_FACTOR="${NEBULA_REPLICA_FACTOR:-1}"
 
 echo "=== bootstrap LDBC datagen Maven deps ==="
 bash "${BENCH_ROOT}/scripts/ci/bootstrap-dsol-xml-maven.sh"

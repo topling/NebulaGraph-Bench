@@ -127,6 +127,10 @@ docker_package() {
   cp -a "${install_dir}" "${ctx}/install"
   cp -f "${BENCH_ROOT}/docker/standalone/${entry}" "${ctx}/"
   cp -f "${dockerfile}" "${ctx}/Dockerfile"
+  cp -f "${BENCH_ROOT}/docker/standalone/runtime-apt-packages.txt" "${ctx}/"
+  if [[ "${variant}" == "topling" ]]; then
+    cp -f "${BENCH_ROOT}/docker/standalone/runtime-apt-packages-topling.txt" "${ctx}/"
+  fi
 
   local full_tag="${image_name}:${IMAGE_TAG}"
   echo "Building docker image ${full_tag}"

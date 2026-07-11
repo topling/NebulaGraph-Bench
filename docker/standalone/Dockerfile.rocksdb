@@ -3,10 +3,11 @@
 # (bin/, etc/nebula-standalone.conf, lib/ if any) after strip.
 FROM ubuntu:24.04
 
+COPY runtime-apt-packages.txt /tmp/
 RUN apt-get update \
-  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    bash ca-certificates curl \
-  && rm -rf /var/lib/apt/lists/* \
+  && DEBIAN_FRONTEND=noninteractive xargs -a /tmp/runtime-apt-packages.txt \
+    apt-get install -y --no-install-recommends \
+  && rm -rf /var/lib/apt/lists/* /tmp/runtime-apt-packages.txt \
   && groupadd --system nebula \
   && useradd --system --gid nebula --home-dir /usr/local/nebula --no-create-home nebula
 

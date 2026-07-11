@@ -15,7 +15,7 @@ if command -v apt-get >/dev/null 2>&1; then
     libgflags-dev \
     zlib1g-dev \
     libbz2-dev \
-    libcurl4-gnutls-dev \
+    libcurl4-openssl-dev \
     liburing-dev \
     libsnappy-dev \
     liblz4-dev \

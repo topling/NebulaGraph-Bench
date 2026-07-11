@@ -71,6 +71,10 @@ class NebulaController(BaseController):
         kwargs["password"] = self.password
         kwargs["address"] = self.address
         kwargs["vid_type"] = self.vid_type
+        if os.environ.get("NEBULA_REPLICA_FACTOR"):
+            kwargs["replica_factor"] = int(os.environ["NEBULA_REPLICA_FACTOR"])
+        if os.environ.get("NEBULA_PARTITION_NUM"):
+            kwargs["partition_num"] = int(os.environ["NEBULA_PARTITION_NUM"])
 
         return dumper.dump(**kwargs)
 

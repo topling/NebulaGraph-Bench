@@ -1,0 +1,15 @@
+bash
+ca-certificates
+curl
+libcurl4t64
+libssl3t64
+zlib1g
+libsnappy1v5
+liblz4-1
+libzstd1
+libbz2-1.0
+libgflags2.2
+libgoogle-glog0v6t64
+libevent-2.1-7t64
+libdouble-conversion3
+libreadline8t64

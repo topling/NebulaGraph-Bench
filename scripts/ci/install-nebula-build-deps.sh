@@ -21,6 +21,7 @@ if command -v apt-get >/dev/null 2>&1; then
     flex \
     bison \
     libssl-dev \
+    libcurl4-openssl-dev \
     libreadline-dev \
     zlib1g-dev \
     libbz2-dev \
