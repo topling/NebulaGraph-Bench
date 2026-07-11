@@ -130,29 +130,40 @@ docker_package() {
 
   local full_tag="${image_name}:${IMAGE_TAG}"
   echo "Building docker image ${full_tag}"
-  docker build -t "${full_tag}" -f "${ctx}/Dockerfile" "${ctx}"
-
-  if [[ "${DO_LATEST}" -eq 1 ]]; then
-    docker tag "${full_tag}" "${image_name}:latest"
-  fi
 
   if [[ "${DO_PUSH}" -eq 1 ]]; then
-    docker_push_with_retry() {
-      local image="$1"
-      local attempt
-      for attempt in 1 2 3; do
-        if docker push "${image}"; then
-          return 0
-        fi
-        echo "docker push ${image} failed (attempt ${attempt}/3)" >&2
-        sleep $((attempt * 15))
-      done
-      return 1
-    }
-    echo "Pushing ${full_tag}"
-    docker_push_with_retry "${full_tag}"
+    # GHCR 在经典 docker push 时会跨仓库挂载 runner 预装镜像层（如 dependabot），
+    # manifest 提交阶段可能报 unknown blob。buildx --push 直接上传本机构建的层。
+    local -a build_tags=(-t "${full_tag}")
     if [[ "${DO_LATEST}" -eq 1 ]]; then
-      docker_push_with_retry "${image_name}:latest"
+      build_tags+=(-t "${image_name}:latest")
+    fi
+    if ! docker buildx inspect nebula-bench-push >/dev/null 2>&1; then
+      docker buildx create --name nebula-bench-push --driver docker-container --use >/dev/null
+    else
+      docker buildx use nebula-bench-push >/dev/null
+    fi
+    local attempt
+    for attempt in 1 2 3; do
+      if docker buildx build \
+          --file "${ctx}/Dockerfile" \
+          "${build_tags[@]}" \
+          --push \
+          --provenance=false \
+          --sbom=false \
+          "${ctx}"; then
+        break
+      fi
+      echo "docker buildx build --push failed (attempt ${attempt}/3)" >&2
+      if [[ "${attempt}" -eq 3 ]]; then
+        return 1
+      fi
+      sleep $((attempt * 15))
+    done
+  else
+    docker build -t "${full_tag}" -f "${ctx}/Dockerfile" "${ctx}"
+    if [[ "${DO_LATEST}" -eq 1 ]]; then
+      docker tag "${full_tag}" "${image_name}:latest"
     fi
   fi
 
