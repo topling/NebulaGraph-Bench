@@ -137,10 +137,22 @@ docker_package() {
   fi
 
   if [[ "${DO_PUSH}" -eq 1 ]]; then
+    docker_push_with_retry() {
+      local image="$1"
+      local attempt
+      for attempt in 1 2 3; do
+        if docker push "${image}"; then
+          return 0
+        fi
+        echo "docker push ${image} failed (attempt ${attempt}/3)" >&2
+        sleep $((attempt * 15))
+      done
+      return 1
+    }
     echo "Pushing ${full_tag}"
-    docker push "${full_tag}"
+    docker_push_with_retry "${full_tag}"
     if [[ "${DO_LATEST}" -eq 1 ]]; then
-      docker push "${image_name}:latest"
+      docker_push_with_retry "${image_name}:latest"
     fi
   fi
 
