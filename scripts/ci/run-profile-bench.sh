@@ -43,6 +43,28 @@ compose() {
   docker compose -f "${COMPOSE_FILE}" "$@"
 }
 
+dump_compose_debug() {
+  compose ps || true
+  compose logs || true
+}
+
+wait_for_graph_port() {
+  local label="${1:?}"
+  echo "Waiting for graph port 9669 (${label})..."
+  for i in $(seq 1 60); do
+    if bash -c 'exec 3<>/dev/tcp/127.0.0.1/9669' 2>/dev/null; then
+      echo "graph port ready (${label})"
+      return 0
+    fi
+    if [[ "${i}" -eq 60 ]]; then
+      echo "timeout waiting for 9669 (${label})" >&2
+      dump_compose_debug
+      return 1
+    fi
+    sleep 2
+  done
+}
+
 cleanup() {
   compose down -v --remove-orphans || true
 }
@@ -56,19 +78,7 @@ else
 fi
 compose up -d
 
-echo "Waiting for graph port 9669..."
-for i in $(seq 1 60); do
-  if bash -c 'exec 3<>/dev/tcp/127.0.0.1/9669' 2>/dev/null; then
-    echo "graph port ready"
-    break
-  fi
-  if [[ "${i}" -eq 60 ]]; then
-    echo "timeout waiting for 9669" >&2
-    compose logs || true
-    exit 1
-  fi
-  sleep 2
-done
+wait_for_graph_port "startup"
 # Extra settle time for standalone init
 sleep 5
 
@@ -79,6 +89,12 @@ echo "=== generate LDBC data SF=${SCALE} ==="
 python3 run.py data -s "${SCALE}"
 
 echo "=== import ==="
+if ! bash -c 'exec 3<>/dev/tcp/127.0.0.1/9669' 2>/dev/null; then
+  echo "graph port 9669 not available before import, restarting standalone" >&2
+  compose up -d
+  wait_for_graph_port "pre-import-restart" || exit 1
+  sleep 5
+fi
 python3 run.py nebula importer -a "${NEBULA_ADDRESS}"
 
 echo "=== stress ${STRESS_ARGS} ==="
