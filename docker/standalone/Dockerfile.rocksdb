@@ -1,9 +1,14 @@
 # Runtime image for NebulaGraph standalone (official RocksDB build).
 # Build context must contain a prepared install tree at ./install/
 # (bin/, etc/nebula-standalone.conf, lib/ if any) after strip.
-FROM centos:7
+FROM ubuntu:24.04
 
-RUN groupadd -r nebula && useradd -r -g nebula -d /usr/local/nebula nebula
+RUN apt-get update \
+  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    bash ca-certificates curl \
+  && rm -rf /var/lib/apt/lists/* \
+  && groupadd --system nebula \
+  && useradd --system --gid nebula --home-dir /usr/local/nebula --no-create-home nebula
 
 COPY install/ /usr/local/nebula/
 COPY entrypoint-rocksdb.sh /usr/local/nebula/bin/entrypoint.sh
