@@ -50,19 +50,28 @@ dump_compose_debug() {
 
 wait_for_graph_port() {
   local label="${1:?}"
-  echo "Waiting for graph port 9669 (${label})..."
-  for i in $(seq 1 60); do
-    if bash -c 'exec 3<>/dev/tcp/127.0.0.1/9669' 2>/dev/null; then
-      echo "graph port ready (${label})"
+  echo "Waiting for graph service (${label})..."
+  for i in $(seq 1 90); do
+    if curl -sf "http://127.0.0.1:19669/status" >/dev/null 2>&1 \
+      && bash -c 'exec 3<>/dev/tcp/127.0.0.1/9669' 2>/dev/null; then
+      echo "graph service ready (${label})"
       return 0
     fi
-    if [[ "${i}" -eq 60 ]]; then
-      echo "timeout waiting for 9669 (${label})" >&2
+    if [[ "${i}" -eq 90 ]]; then
+      echo "timeout waiting for graph service (${label})" >&2
       dump_compose_debug
       return 1
     fi
     sleep 2
   done
+}
+
+restart_standalone_for_import() {
+  echo "recycling standalone before import (fresh volumes)" >&2
+  compose down -v --remove-orphans || true
+  compose up -d
+  wait_for_graph_port "pre-import-restart" || return 1
+  sleep 10
 }
 
 cleanup() {
@@ -92,13 +101,15 @@ echo "=== generate LDBC data SF=${SCALE} ==="
 python3 run.py data -s "${SCALE}"
 
 echo "=== import ==="
-if ! bash -c 'exec 3<>/dev/tcp/127.0.0.1/9669' 2>/dev/null; then
-  echo "graph port 9669 not available before import, restarting standalone" >&2
-  compose up -d
-  wait_for_graph_port "pre-import-restart" || exit 1
-  sleep 5
+if ! curl -sf "http://127.0.0.1:19669/status" >/dev/null 2>&1 \
+  || ! bash -c 'exec 3<>/dev/tcp/127.0.0.1/9669' 2>/dev/null; then
+  restart_standalone_for_import || exit 1
 fi
-python3 run.py nebula importer -a "${NEBULA_ADDRESS}"
+if ! python3 run.py nebula importer -a "${NEBULA_ADDRESS}"; then
+  echo "nebula importer failed" >&2
+  dump_compose_debug
+  exit 1
+fi
 
 echo "=== stress ${STRESS_ARGS} ==="
 # Stress writes under output/<timestamp>/ via StressFactory; copy afterward.
