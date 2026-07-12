@@ -58,6 +58,17 @@ sed -i "s/interactive.*/interactive.${scaleFactor}/g" params.ini && \
 # datetime format
 sed -i "s/ldbc.snb.datagen.util.formatter.StringDateFormatter.dateTimeFormat.*//g" params.ini && \
 echo "ldbc.snb.datagen.util.formatter.StringDateFormatter.dateTimeFormat:yyyy-MM-dd'T'HH:mm:ss.SSS" >> params.ini && \
+# params.ini-only anti-locality overrides (see scripts/ldbc-low-locality.params.ini)
+LOW_LOC_PARAMS="${SCRIPT_DIR}/ldbc-low-locality.params.ini" && \
+while IFS= read -r line || [[ -n "${line}" ]]; do \
+  [[ -z "${line}" || "${line}" =~ ^[[:space:]]*# ]] && continue; \
+  key="${line%%:*}"; \
+  [[ -z "${key}" ]] && continue; \
+  sed -i "/^${key}:/d" params.ini; \
+done < "${LOW_LOC_PARAMS}" && \
+grep -v '^[[:space:]]*#' "${LOW_LOC_PARAMS}" | grep -v '^[[:space:]]*$' >> params.ini && \
+echo "=== params.ini (low-locality overrides applied) ===" && \
+grep -E 'knowsGenerator|blockSize|baseProbCorrelated|limitProCorrelated|persons\.sort|scaleFactor' params.ini || true && \
 # set this to the Hadoop 3.2.1 directory
 export HADOOP_HOME=${HADOOP_HOME} && \
 export LDBC_SNB_DATAGEN_HOME=`pwd`  && \
