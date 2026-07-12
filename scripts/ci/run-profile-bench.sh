@@ -56,32 +56,53 @@ compose() {
   docker compose "${COMPOSE_ARGS[@]}" "$@"
 }
 
-# Extract image topling-enterprise.yaml and force write_buffer_size for CI runners.
+# Extract image topling-enterprise.yaml and shrink memory knobs for CI runners (~7GiB).
+# Image defaults (16G cache / 4G WBM / 2G write_buffer / /dev/shm zip temp) OOM or break the
+# standalone process; importer then sees "write: broken pipe" and never finishes.
 prepare_enterprise_conf_override() {
   local wbs="${ENTERPRISE_WRITE_BUFFER_SIZE:-128M}"
+  local lru="${ENTERPRISE_LRU_CACHE_CAPACITY:-512M}"
+  local wbm="${ENTERPRISE_WBM_BUFFER_SIZE:-512M}"
+  local mem_cap="${ENTERPRISE_CSPP_MEM_CAP:-512M}"
+  local wal="${ENTERPRISE_MAX_TOTAL_WAL_SIZE:-1G}"
+  local zip_tmp="${ENTERPRISE_ZIP_LOCAL_TEMP_DIR:-/tmp}"
   local out="${RESULT_DIR}/topling-enterprise.ci.yaml"
   local cid
-  echo "=== enterprise conf override: write_buffer_size=${wbs} ==="
+  echo "=== enterprise conf override: write_buffer=${wbs} lru=${lru} wbm=${wbm} mem_cap=${mem_cap} wal=${wal} zip_tmp=${zip_tmp} ==="
   mkdir -p "${RESULT_DIR}"
   cid="$(docker create "${TOPLING_IMAGE}")"
   docker cp "${cid}:/usr/local/nebula/etc/topling/topling-enterprise.yaml" "${out}"
   docker rm -f "${cid}" >/dev/null
-  python3 - "${out}" "${wbs}" <<'PY'
+  python3 - "${out}" "${wbs}" "${lru}" "${wbm}" "${mem_cap}" "${wal}" "${zip_tmp}" <<'PY'
 import re
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
-wbs = sys.argv[2]
+wbs, lru, wbm, mem_cap, wal, zip_tmp = sys.argv[2:8]
 text = path.read_text(encoding="utf-8")
-pat = re.compile(r"^([ \t]*write_buffer_size:\s*)\S+(.*)$", re.M)
-new_text, n = pat.subn(rf"\g<1>{wbs}\2", text, count=1)
-if n != 1:
-    raise SystemExit(f"expected to patch exactly 1 write_buffer_size, patched={n}")
-path.write_text(new_text, encoding="utf-8")
-print(f"patched {path} write_buffer_size -> {wbs}")
+patches = [
+    (r"^([ \t]*write_buffer_size:\s*)\S+(.*)$", rf"\g<1>{wbs}\2", "write_buffer_size", wbs),
+    (r"^([ \t]*capacity:\s*)\S+(.*)$", rf"\g<1>{lru}\2", "lru_cache.capacity", lru),
+    (r"^([ \t]*buffer_size:\s*)\S+(.*)$", rf"\g<1>{wbm}\2", "wbm.buffer_size", wbm),
+    (r"^([ \t]*mem_cap:\s*)\S+(.*)$", rf"\g<1>{mem_cap}\2", "cspp.mem_cap", mem_cap),
+    (r"^([ \t]*max_total_wal_size:\s*)\S+(.*)$", rf"\g<1>{wal}\2", "max_total_wal_size", wal),
+    (r"^([ \t]*localTempDir:\s*)\S+(.*)$", rf"\g<1>{zip_tmp}\2", "zip.localTempDir", zip_tmp),
+]
+for pat, repl, name, value in patches:
+    text, n = re.compile(pat, re.M).subn(repl, text, count=1)
+    if n != 1:
+        raise SystemExit(f"expected to patch exactly 1 {name}, patched={n}")
+    print(f"patched {path} {name} -> {value}")
+path.write_text(text, encoding="utf-8")
 PY
   export TOPLING_ENTERPRISE_CONF_HOST="${out}"
+  export ENTERPRISE_WRITE_BUFFER_SIZE="${wbs}"
+  export ENTERPRISE_LRU_CACHE_CAPACITY="${lru}"
+  export ENTERPRISE_WBM_BUFFER_SIZE="${wbm}"
+  export ENTERPRISE_CSPP_MEM_CAP="${mem_cap}"
+  export ENTERPRISE_MAX_TOTAL_WAL_SIZE="${wal}"
+  export ENTERPRISE_ZIP_LOCAL_TEMP_DIR="${zip_tmp}"
   COMPOSE_ARGS+=(-f "${COMPOSE_DIR}/docker-compose.topling.enterprise-conf.yaml")
 }
 
