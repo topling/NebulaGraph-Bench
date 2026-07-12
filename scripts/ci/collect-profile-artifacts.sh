@@ -23,13 +23,13 @@ else
 fi
 
 storage_json="${RESULT_DIR}/storage-stats.json"
-docker exec "${cid}" bash -lc '
+mapfile -t _stats < <(docker exec "${cid}" bash -lc '
   set -euo pipefail
   data_dir=/usr/local/nebula/data
   du_disk() { echo $(( $(du -sk "$1" | cut -f1) * 1024 )); }
   du_apparent() { du -sb "$1" | cut -f1; }
   if [[ ! -d "${data_dir}" ]]; then
-    echo "{\"error\":\"data dir not found: ${data_dir}\"}" >&2
+    echo "error:data dir not found: ${data_dir}" >&2
     exit 1
   fi
   storage_disk=0; storage_apparent=0; meta_disk=0; meta_apparent=0
@@ -43,23 +43,30 @@ docker exec "${cid}" bash -lc '
   fi
   data_disk=$(du_disk "${data_dir}")
   data_apparent=$(du_apparent "${data_dir}")
-  python3 - <<PY
-import json
-doc = {
+  printf "%s\n" "${data_disk}" "${data_apparent}" "${storage_disk}" "${storage_apparent}" "${meta_disk}" "${meta_apparent}"
+')
+
+data_disk="${_stats[0]}"
+data_apparent="${_stats[1]}"
+storage_disk="${_stats[2]}"
+storage_apparent="${_stats[3]}"
+meta_disk="${_stats[4]}"
+meta_apparent="${_stats[5]}"
+
+cat > "${storage_json}" <<EOF
+{
   "measurement_stage": "post_import_pre_teardown",
   "measurement_methods": {
     "disk_bytes": "du -sk (actual blocks allocated)",
-    "apparent_bytes": "du -sb (logical file sizes)",
+    "apparent_bytes": "du -sb (logical file sizes)"
   },
-  "data_dir": "${data_dir}",
+  "data_dir": "/usr/local/nebula/data",
   "data_dir_disk_bytes": ${data_disk},
   "data_dir_apparent_bytes": ${data_apparent},
   "storage_disk_bytes": ${storage_disk},
   "storage_apparent_bytes": ${storage_apparent},
   "meta_disk_bytes": ${meta_disk},
-  "meta_apparent_bytes": ${meta_apparent},
+  "meta_apparent_bytes": ${meta_apparent}
 }
-print(json.dumps(doc, indent=2, ensure_ascii=False))
-PY
-' > "${storage_json}"
+EOF
 echo "wrote ${storage_json}"
