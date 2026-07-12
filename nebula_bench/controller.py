@@ -110,47 +110,57 @@ class DumpController(object):
         #         ]
         #     }
         # ]
-        data = list()
         if folder is None:
             return
         package_name = "nebula_bench.scenarios"
         scenarios = utils.load_class(package_name, load_all=True, base_class=BaseScenario)
+        scenario_by_name = {s.name: s for s in scenarios}
 
-        paths = sorted(Path(folder).iterdir(), key=os.path.getmtime)
-        case = None
-        for file in paths:
+        result_files = []
+        for file in Path(folder).iterdir():
             if file.is_dir():
                 continue
             n = file.name
             if not n.startswith("result") or not n.endswith(".json"):
                 continue
             file_name = n.rstrip(".json")
-            _, vu, case_name = file_name.split("_", 3)
-            if case is not None and case["case"]["name"] != case_name:
-                data.append(case)
-                case = None
-            if case is None:
-                case = {}
-                case["case"] = {}
-                for s in scenarios:
-                    if s.name == case_name:
-                        case["case"]["stmt"] = s.nGQL
-                        break
-                case["case"]["name"] = case_name
-                case["k6"] = list()
+            parts = file_name.split("_", 2)
+            if len(parts) != 3:
+                continue
+            _, vu, case_name = parts
+            result_files.append((case_name, int(vu), file))
 
-            file_path = Path(folder) / n
-            with open(file_path, "r") as f:
+        result_files.sort(
+            key=lambda item: (
+                getattr(scenario_by_name.get(item[0]), "rank", 99999),
+                item[0],
+                item[1],
+            )
+        )
+
+        cases = {}
+        for case_name, vu, file in result_files:
+            if case_name not in cases:
+                scenario = scenario_by_name.get(case_name)
+                cases[case_name] = {
+                    "case": {
+                        "name": case_name,
+                        "stmt": scenario.nGQL if scenario else "",
+                    },
+                    "k6": [],
+                }
+            with open(file, "r") as f:
                 metric = json.load(f)
+            cases[case_name]["k6"].append({"vu": vu, "report": metric})
 
-            k6 = {}
-            k6["vu"] = int(vu)
-            k6["report"] = metric
-            case["k6"].append(k6)
-
-        if case is not None:
-            data.append(case)
-        return data
+        ordered_names = sorted(
+            cases.keys(),
+            key=lambda name: (
+                getattr(scenario_by_name.get(name), "rank", 99999),
+                name,
+            ),
+        )
+        return [cases[name] for name in ordered_names]
 
     def export_comparison(self, src_folder, dst_folder, output, src_label=None, dst_label=None):
         src_data = self.get_data(src_folder)

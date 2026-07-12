@@ -142,6 +142,10 @@ if [[ -n "${latest}" ]] && [[ -d "${latest}" ]]; then
   echo "Copied stress results from ${latest} -> ${RESULT_DIR}"
 fi
 
+if ! bash "${BENCH_ROOT}/scripts/ci/validate-stress-results.sh" "${RESULT_DIR}"; then
+  bench_failed=1
+fi
+
 compose logs > "${RESULT_DIR}/compose.log" 2>&1 || true
 
 echo "=== collect engine logs and storage stats ==="

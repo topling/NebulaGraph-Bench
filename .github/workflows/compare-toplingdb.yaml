@@ -30,6 +30,7 @@ concurrency:
 
 env:
   BENCH_ROOT: ${{ github.workspace }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   bench:
@@ -115,11 +116,22 @@ jobs:
 
       - name: Upload profile output
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: bench-${{ matrix.profile }}
           path: output/${{ matrix.profile }}-*
           if-no-files-found: warn
+
+      - name: Bench job summary
+        if: always()
+        run: |
+          {
+            echo "## bench-${{ matrix.profile }}"
+            echo
+            echo "Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            echo "Download artifact **bench-${{ matrix.profile }}** from the run Artifacts section."
+          } >> "${GITHUB_STEP_SUMMARY}"
 
   report:
     name: comparison-report
@@ -149,7 +161,7 @@ jobs:
         run: python3 -m pip install --upgrade pip && python3 -m pip install -r requirements.txt
 
       - name: Download bench artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           path: output
           pattern: bench-*
@@ -160,41 +172,47 @@ jobs:
 
       - name: Upload comparison report artifact
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: comparison-report
           path: output/comparison-report/
           if-no-files-found: error
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: output/comparison-report
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
         continue-on-error: true
 
-      - name: Publish report URL
-        if: steps.deployment.outcome == 'success'
+      - name: Publish report links
+        if: always()
         env:
           PAGE_URL: ${{ steps.deployment.outputs.page_url }}
         run: |
           set -euo pipefail
-          base="${PAGE_URL%/}/"
+          run_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           {
             echo "## ToplingDB Benchmark Comparison"
             echo
-            echo "**Report site:** ${base}"
+            echo "**Workflow run:** ${run_url}"
             echo
-            echo "| Report | URL |"
-            echo "| --- | --- |"
-            echo "| **Triple comparison (charts + table)** | ${base}comparison.html |"
-            echo "| Index | ${base} |"
-            for name in rocksdb conservative enterprise; do
-              if [[ -f "output/comparison-report/${name}.html" ]]; then
-                echo "| ${name} (single) | ${base}${name}.html |"
-              fi
-            done
+            echo "**Artifact:** download \`comparison-report\` from the run [Artifacts](${run_url}#artifacts) (open \`comparison.html\`)."
+            echo
           } >> "${GITHUB_STEP_SUMMARY}"
+          if [[ "${{ steps.deployment.outcome }}" == "success" && -n "${PAGE_URL}" ]]; then
+            base="${PAGE_URL%/}/"
+            {
+              echo "**Report site:** ${base}"
+              echo
+              echo "| Report | URL |"
+              echo "| --- | --- |"
+              echo "| **Triple comparison** | ${base}comparison.html |"
+              echo "| Index | ${base} |"
+            } >> "${GITHUB_STEP_SUMMARY}"
+          else
+            echo "GitHub Pages deploy skipped or failed (enable Pages in repo settings if needed)." >> "${GITHUB_STEP_SUMMARY}"
+          fi
