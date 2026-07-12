@@ -9,9 +9,9 @@ compose() {
   docker compose -f "${COMPOSE_FILE}" "$@"
 }
 
-cid="$(compose ps -q nebula-standalone 2>/dev/null || true)"
+cid="$(compose ps -aq nebula-standalone 2>/dev/null | head -1 || true)"
 if [[ -z "${cid}" ]]; then
-  echo "warn: no running nebula-standalone container; skip artifact collection" >&2
+  echo "warn: no nebula-standalone container found; skip artifact collection" >&2
   exit 0
 fi
 
@@ -23,35 +23,55 @@ else
 fi
 
 storage_json="${RESULT_DIR}/storage-stats.json"
-mapfile -t _stats < <(docker exec "${cid}" bash -lc '
-  set -euo pipefail
-  data_dir=/usr/local/nebula/data
-  du_disk() { echo $(( $(du -sk "$1" | cut -f1) * 1024 )); }
-  du_apparent() { du -sb "$1" | cut -f1; }
-  if [[ ! -d "${data_dir}" ]]; then
-    echo "error:data dir not found: ${data_dir}" >&2
-    exit 1
-  fi
+data_mount="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/usr/local/nebula/data"}}{{.Source}}{{end}}{{end}}' "${cid}" 2>/dev/null || true)"
+
+du_disk() { echo $(( $(du -sk "$1" | cut -f1) * 1024 )); }
+du_apparent() { du -sb "$1" | cut -f1; }
+
+if [[ -n "${data_mount}" && -d "${data_mount}" ]]; then
+  data_dir="${data_mount}"
   storage_disk=0; storage_apparent=0; meta_disk=0; meta_apparent=0
   if [[ -d "${data_dir}/storage" ]]; then
-    storage_disk=$(du_disk "${data_dir}/storage")
-    storage_apparent=$(du_apparent "${data_dir}/storage")
+    storage_disk="$(du_disk "${data_dir}/storage")"
+    storage_apparent="$(du_apparent "${data_dir}/storage")"
   fi
   if [[ -d "${data_dir}/meta" ]]; then
-    meta_disk=$(du_disk "${data_dir}/meta")
-    meta_apparent=$(du_apparent "${data_dir}/meta")
+    meta_disk="$(du_disk "${data_dir}/meta")"
+    meta_apparent="$(du_apparent "${data_dir}/meta")"
   fi
-  data_disk=$(du_disk "${data_dir}")
-  data_apparent=$(du_apparent "${data_dir}")
-  printf "%s\n" "${data_disk}" "${data_apparent}" "${storage_disk}" "${storage_apparent}" "${meta_disk}" "${meta_apparent}"
-')
-
-data_disk="${_stats[0]}"
-data_apparent="${_stats[1]}"
-storage_disk="${_stats[2]}"
-storage_apparent="${_stats[3]}"
-meta_disk="${_stats[4]}"
-meta_apparent="${_stats[5]}"
+  data_disk="$(du_disk "${data_dir}")"
+  data_apparent="$(du_apparent "${data_dir}")"
+  data_dir_label="/usr/local/nebula/data"
+elif docker inspect -f '{{.State.Running}}' "${cid}" 2>/dev/null | grep -q true; then
+  mapfile -t _stats < <(docker exec "${cid}" bash -lc '
+    set -euo pipefail
+    data_dir=/usr/local/nebula/data
+    du_disk() { echo $(( $(du -sk "$1" | cut -f1) * 1024 )); }
+    du_apparent() { du -sb "$1" | cut -f1; }
+    storage_disk=0; storage_apparent=0; meta_disk=0; meta_apparent=0
+    if [[ -d "${data_dir}/storage" ]]; then
+      storage_disk=$(du_disk "${data_dir}/storage")
+      storage_apparent=$(du_apparent "${data_dir}/storage")
+    fi
+    if [[ -d "${data_dir}/meta" ]]; then
+      meta_disk=$(du_disk "${data_dir}/meta")
+      meta_apparent=$(du_apparent "${data_dir}/meta")
+    fi
+    data_disk=$(du_disk "${data_dir}")
+    data_apparent=$(du_apparent "${data_dir}")
+    printf "%s\n" "${data_disk}" "${data_apparent}" "${storage_disk}" "${storage_apparent}" "${meta_disk}" "${meta_apparent}"
+  ')
+  data_disk="${_stats[0]}"
+  data_apparent="${_stats[1]}"
+  storage_disk="${_stats[2]}"
+  storage_apparent="${_stats[3]}"
+  meta_disk="${_stats[4]}"
+  meta_apparent="${_stats[5]}"
+  data_dir_label="/usr/local/nebula/data"
+else
+  echo "warn: cannot measure storage (container stopped and data mount missing)" >&2
+  exit 0
+fi
 
 cat > "${storage_json}" <<EOF
 {
@@ -60,7 +80,7 @@ cat > "${storage_json}" <<EOF
     "disk_bytes": "du -sk (actual blocks allocated)",
     "apparent_bytes": "du -sb (logical file sizes)"
   },
-  "data_dir": "/usr/local/nebula/data",
+  "data_dir": "${data_dir_label}",
   "data_dir_disk_bytes": ${data_disk},
   "data_dir_apparent_bytes": ${data_apparent},
   "storage_disk_bytes": ${storage_disk},

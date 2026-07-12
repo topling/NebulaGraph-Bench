@@ -123,8 +123,17 @@ if ! python3 run.py nebula importer -a "${NEBULA_ADDRESS}"; then
 fi
 
 echo "=== stress ${STRESS_ARGS} ==="
-# Stress writes under output/<timestamp>/ via StressFactory; copy afterward.
-python3 run.py stress run --args="${STRESS_ARGS}"
+bench_failed=0
+if ! python3 run.py stress run --args="${STRESS_ARGS}"; then
+  echo "stress test failed" >&2
+  bench_failed=1
+  dump_compose_debug
+fi
+
+if ! wait_for_graph_port "post-stress"; then
+  echo "graph service unavailable after stress" >&2
+  bench_failed=1
+fi
 
 # Collect latest output folder into RESULT_DIR
 latest="$(ls -1dt output/[0-9]* 2>/dev/null | head -1 || true)"
@@ -146,5 +155,10 @@ python3 "${BENCH_ROOT}/scripts/ci/write-benchmark-meta.py" \
   --stress-args "${STRESS_ARGS}" \
   --rocksdb-image "${ROCKSDB_IMAGE}" \
   --topling-image "${TOPLING_IMAGE}"
+
+if [[ "${bench_failed}" -ne 0 ]]; then
+  echo "bench failed for profile=${PROFILE}" >&2
+  exit 1
+fi
 
 echo "RESULT_DIR=${RESULT_DIR}"

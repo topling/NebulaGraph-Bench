@@ -19,23 +19,26 @@ def _count_ldbc_rows(data_folder: Path) -> dict:
     vertex_files: list[str] = []
     edge_files: list[str] = []
 
-    for csv_path in sorted(sn.glob("*.csv")):
-        name = csv_path.name
-        # Edge dumps: <src>_<edge>_<dst>.csv (see nebula_bench.parser.Parser.parse_edge)
-        parts = csv_path.stem.split("_", 2)
-        is_edge = len(parts) == 3
-        try:
-            with csv_path.open("rb") as f:
-                rows = sum(1 for _ in f)
-        except OSError as exc:
-            return {"error": f"read failed for {csv_path}: {exc}"}
+    for sub in ("static", "dynamic"):
+        subdir = sn / sub
+        if not subdir.is_dir():
+            continue
+        for csv_path in sorted(subdir.glob("*.csv")):
+            name = csv_path.name
+            parts = csv_path.stem.split("_", 2)
+            is_edge = len(parts) == 3
+            try:
+                with csv_path.open("rb") as f:
+                    rows = sum(1 for _ in f)
+            except OSError as exc:
+                return {"error": f"read failed for {csv_path}: {exc}"}
 
-        if is_edge:
-            edge_rows += rows
-            edge_files.append(name)
-        else:
-            vertex_rows += rows
-            vertex_files.append(name)
+            if is_edge:
+                edge_rows += rows
+                edge_files.append(name)
+            else:
+                vertex_rows += rows
+                vertex_files.append(name)
 
     return {
         "vertex_row_count": vertex_rows,

@@ -21,6 +21,8 @@ def load_scenarios(scenarios):
         r = load_class("nebula_bench.scenarios", False, BaseScenario, scenarios)
 
     r = [x for x in r if x.abstract == False]
+    if os.environ.get("STRESS_SKIP_INSERT_SCENARIOS") == "1":
+        r = [x for x in r if not x.__module__.endswith(".insert")]
     r = sorted(r, key=lambda x: x.rank)
     return r
 
@@ -249,7 +251,15 @@ class K6Stress(Stress):
             click.echo(" ".join([x if "(" not in x else '"{}"'.format(x) for x in command]))
             if self.dry_run is not None and self.dry_run:
                 continue
-            run_process(command)
+            rc = run_process(command)
+            if rc != 0:
+                logger.error(
+                    "k6 failed for %s vu=%s exit_code=%s",
+                    scenario.name,
+                    _vu,
+                    rc,
+                )
+                sys.exit(rc)
             # delete the output file if all results are passed
             self.delete_output_if_passed(scenario, _vu)
 

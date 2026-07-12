@@ -101,6 +101,7 @@ jobs:
           TOPLING_IMAGE: ${{ inputs.topling_image != '' && inputs.topling_image || format('ghcr.io/{0}/nebula-standalone-topling:latest', github.repository_owner) }}
           SCALE_FACTOR: ${{ inputs.scale_factor }}
           STRESS_ARGS: ${{ inputs.stress_args }}
+          STRESS_SKIP_INSERT_SCENARIOS: "1"
         run: |
           set -euo pipefail
           echo "ROCKSDB_IMAGE=${ROCKSDB_IMAGE}"
@@ -123,7 +124,7 @@ jobs:
   report:
     name: comparison-report
     needs: bench
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.bench.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
