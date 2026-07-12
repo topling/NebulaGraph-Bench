@@ -64,18 +64,8 @@ def _topling_easy_conf(profile: str) -> dict | None:
         "rocksdb_kick_out_options_file": "1",
         "toplingdb_getcontext_sampling": "kNone",
     }
-    if profile == "enterprise":
-        overrides = {
-            "write_buffer_size_override": "ENTERPRISE_WRITE_BUFFER_SIZE",
-            "lru_cache_capacity_override": "ENTERPRISE_LRU_CACHE_CAPACITY",
-            "wbm_buffer_size_override": "ENTERPRISE_WBM_BUFFER_SIZE",
-            "cspp_mem_cap_override": "ENTERPRISE_CSPP_MEM_CAP",
-            "max_total_wal_size_override": "ENTERPRISE_MAX_TOTAL_WAL_SIZE",
-            "zip_local_temp_dir_override": "ENTERPRISE_ZIP_LOCAL_TEMP_DIR",
-        }
-        for key, env_name in overrides.items():
-            if os.environ.get(env_name):
-                conf[key] = os.environ[env_name]
+    if profile == "enterprise" and os.environ.get("ENTERPRISE_WRITE_BUFFER_SIZE"):
+        conf["write_buffer_size_override"] = os.environ["ENTERPRISE_WRITE_BUFFER_SIZE"]
     return conf
 
 
