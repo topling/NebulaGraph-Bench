@@ -86,8 +86,34 @@ def main() -> int:
         with storage_path.open(encoding="utf-8") as f:
             storage_stats = json.load(f)
 
+    ldbc_data = _count_ldbc_rows(Path(args.data_folder))
+
+    import_meta = None
+    import_path = result_dir / "import-stats.json"
+    if import_path.is_file():
+        with import_path.open(encoding="utf-8") as f:
+            import_stats = json.load(f)
+        duration_sec = float(import_stats.get("duration_sec") or 0)
+        vertex_rows = 0
+        edge_rows = 0
+        if isinstance(ldbc_data, dict) and "error" not in ldbc_data:
+            vertex_rows = int(ldbc_data.get("vertex_row_count") or 0)
+            edge_rows = int(ldbc_data.get("edge_row_count") or 0)
+        total_row_count = vertex_rows + edge_rows
+        rows_per_sec = None
+        if duration_sec > 0:
+            rows_per_sec = round(total_row_count / duration_sec, 2)
+        import_meta = {
+            "duration_sec": duration_sec,
+            "exit_code": import_stats.get("exit_code"),
+            "vertex_row_count": vertex_rows,
+            "edge_row_count": edge_rows,
+            "total_row_count": total_row_count,
+            "rows_per_sec": rows_per_sec,
+        }
+
     meta: dict = {
-        "schema_version": 1,
+        "schema_version": 2,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "profile": args.profile,
         "scale_factor": float(args.scale_factor),
@@ -98,9 +124,11 @@ def main() -> int:
             "rocksdb": args.rocksdb_image,
             "topling": args.topling_image,
         },
-        "ldbc_data": _count_ldbc_rows(Path(args.data_folder)),
+        "ldbc_data": ldbc_data,
         "storage": storage_stats,
     }
+    if import_meta is not None:
+        meta["import"] = import_meta
 
     easy = _topling_easy_conf(args.profile)
     if easy:

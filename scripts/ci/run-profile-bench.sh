@@ -116,7 +116,31 @@ if ! curl -sf "http://127.0.0.1:19669/status" >/dev/null 2>&1 \
   || ! bash -c 'exec 3<>/dev/tcp/127.0.0.1/9669' 2>/dev/null; then
   restart_standalone_for_import || exit 1
 fi
-if ! python3 run.py nebula importer -a "${NEBULA_ADDRESS}"; then
+import_rc=0
+python3 - "${RESULT_DIR}" "${NEBULA_ADDRESS}" <<'PY' || import_rc=$?
+import json
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+result_dir = Path(sys.argv[1])
+address = sys.argv[2]
+cmd = ["python3", "run.py", "nebula", "importer", "-a", address]
+t0 = time.perf_counter()
+proc = subprocess.run(cmd)
+duration = time.perf_counter() - t0
+stats = {
+    "duration_sec": round(duration, 3),
+    "exit_code": proc.returncode,
+    "command": " ".join(cmd),
+}
+out = result_dir / "import-stats.json"
+out.write_text(json.dumps(stats, indent=2) + "\n", encoding="utf-8")
+print(f"wrote {out} duration_sec={stats['duration_sec']} exit_code={stats['exit_code']}")
+sys.exit(proc.returncode)
+PY
+if [[ "${import_rc}" -ne 0 ]]; then
   echo "nebula importer failed" >&2
   dump_compose_debug
   exit 1

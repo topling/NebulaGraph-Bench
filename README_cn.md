@@ -301,7 +301,7 @@ Actions → **Compare ToplingDB bench**（`compare-toplingdb.yaml`）→ Run wor
 
 - 填写上一步的 `rocksdb_image` / `topling_image`（默认 `...:latest`）
 - 默认 LDBC `SF=0.1`，`stress --args='-d 3s'`
-- **未传 `-u` 时**会对每个场景跑默认五档 VU：`50,100,200,300,500`（与现有 `nebula-bench.yaml` 一致）
+- **未传 `-u` 时**会对每个场景跑默认四档 VU：`5,10,20,40`（与现有 `nebula-bench.yaml` 一致）
 - 每个 matrix 分片内先装依赖再 pull/压测；产物上传为 `bench-<profile>` artifact
 
 ### 本地兄弟目录

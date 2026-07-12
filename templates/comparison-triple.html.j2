@@ -68,6 +68,25 @@
 			}
 			html += "</tbody></table>";
 
+			html += "<h5 class=\"mt-3\">Import performance (per profile)</h5>";
+			html += "<p class=\"text-muted small\">行数 = LDBC CSV 行计数（含各文件 header）；Rows/s = total_row_count / duration_sec</p>";
+			html += "<div class=\"table-responsive\"><table class=\"table table-sm table-bordered\">";
+			html += "<thead><tr><th>Profile</th><th>Duration (s)</th><th>Total rows</th><th>Rows/s</th></tr></thead><tbody>";
+			for (const p of profiles) {
+				const m = p.meta || {};
+				const imp = m.import || {};
+				const duration = imp.duration_sec != null ? imp.duration_sec : "-";
+				const totalRows = imp.total_row_count != null ? imp.total_row_count : "-";
+				const rowsPerSec = imp.rows_per_sec != null ? imp.rows_per_sec : "-";
+				html += `<tr class="profile-${p.label}">`;
+				html += `<td>${p.label}</td>`;
+				html += `<td>${duration}</td>`;
+				html += `<td>${totalRows}</td>`;
+				html += `<td>${rowsPerSec}</td>`;
+				html += "</tr>";
+			}
+			html += "</tbody></table></div>";
+
 			html += "<h5 class=\"mt-3\">Storage footprint (per profile)</h5>";
 			html += "<p class=\"text-muted small\">声明尺寸 = du -sb（逻辑文件大小）；实际尺寸 = du -sk（磁盘块占用）</p>";
 			html += "<div class=\"table-responsive\"><table class=\"table table-sm table-bordered\">";

@@ -20,5 +20,5 @@ class BaseScenario(metaclass=ScenarioMeta):
     stage: dict
     csv_path: str
     name: str
-    vus = [50, 100, 200, 300, 500]
+    vus = [5, 10, 20, 40]
     rank: int = 0
