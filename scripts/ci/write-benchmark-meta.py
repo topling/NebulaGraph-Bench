@@ -64,8 +64,11 @@ def _topling_easy_conf(profile: str) -> dict | None:
         "rocksdb_kick_out_options_file": "1",
         "toplingdb_getcontext_sampling": "kNone",
     }
-    if profile == "enterprise" and os.environ.get("ENTERPRISE_WRITE_BUFFER_SIZE"):
-        conf["write_buffer_size_override"] = os.environ["ENTERPRISE_WRITE_BUFFER_SIZE"]
+    if profile == "enterprise":
+        if os.environ.get("ENTERPRISE_WRITE_BUFFER_SIZE"):
+            conf["write_buffer_size_override"] = os.environ["ENTERPRISE_WRITE_BUFFER_SIZE"]
+        if os.environ.get("ENTERPRISE_LOCAL_TEMP_DIR"):
+            conf["local_temp_dir_override"] = os.environ["ENTERPRISE_LOCAL_TEMP_DIR"]
     return conf
 
 

@@ -104,6 +104,8 @@ jobs:
           STRESS_ARGS: ${{ inputs.stress_args }}
           # enterprise image default write_buffer_size=2G OOMs GH runners under INSERT; CI overrides to 128M
           ENTERPRISE_WRITE_BUFFER_SIZE: "128M"
+          # enterprise zip localTempDir defaults to /dev/shm; CI overrides to /tmp
+          ENTERPRISE_LOCAL_TEMP_DIR: "/tmp"
         run: |
           set -euo pipefail
           echo "ROCKSDB_IMAGE=${ROCKSDB_IMAGE}"

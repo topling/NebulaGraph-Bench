@@ -56,30 +56,36 @@ compose() {
   docker compose "${COMPOSE_ARGS[@]}" "$@"
 }
 
-# Extract image topling-enterprise.yaml and force write_buffer_size for CI runners.
+# Extract image topling-enterprise.yaml and force selected knobs for CI runners.
 prepare_enterprise_conf_override() {
   local wbs="${ENTERPRISE_WRITE_BUFFER_SIZE:-128M}"
+  local zip_tmp="${ENTERPRISE_LOCAL_TEMP_DIR:-/tmp}"
   local out="${RESULT_DIR}/topling-enterprise.ci.yaml"
   local cid
-  echo "=== enterprise conf override: write_buffer_size=${wbs} ==="
+  echo "=== enterprise conf override: write_buffer_size=${wbs} localTempDir=${zip_tmp} ==="
   mkdir -p "${RESULT_DIR}"
   cid="$(docker create "${TOPLING_IMAGE}")"
   docker cp "${cid}:/usr/local/nebula/etc/topling/topling-enterprise.yaml" "${out}"
   docker rm -f "${cid}" >/dev/null
-  python3 - "${out}" "${wbs}" <<'PY'
+  python3 - "${out}" "${wbs}" "${zip_tmp}" <<'PY'
 import re
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
 wbs = sys.argv[2]
+zip_tmp = sys.argv[3]
 text = path.read_text(encoding="utf-8")
-pat = re.compile(r"^([ \t]*write_buffer_size:\s*)\S+(.*)$", re.M)
-new_text, n = pat.subn(rf"\g<1>{wbs}\2", text, count=1)
-if n != 1:
-    raise SystemExit(f"expected to patch exactly 1 write_buffer_size, patched={n}")
-path.write_text(new_text, encoding="utf-8")
-print(f"patched {path} write_buffer_size -> {wbs}")
+patches = [
+    (r"^([ \t]*write_buffer_size:\s*)\S+(.*)$", rf"\g<1>{wbs}\2", "write_buffer_size", wbs),
+    (r"^([ \t]*localTempDir:\s*)\S+(.*)$", rf"\g<1>{zip_tmp}\2", "localTempDir", zip_tmp),
+]
+for pat, repl, name, value in patches:
+    text, n = re.compile(pat, re.M).subn(repl, text, count=1)
+    if n != 1:
+        raise SystemExit(f"expected to patch exactly 1 {name}, patched={n}")
+    print(f"patched {path} {name} -> {value}")
+path.write_text(text, encoding="utf-8")
 PY
   export TOPLING_ENTERPRISE_CONF_HOST="${out}"
   COMPOSE_ARGS+=(-f "${COMPOSE_DIR}/docker-compose.topling.enterprise-conf.yaml")
