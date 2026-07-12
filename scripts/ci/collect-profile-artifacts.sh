@@ -25,6 +25,45 @@ fi
 storage_json="${RESULT_DIR}/storage-stats.json"
 data_mount="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/usr/local/nebula/data"}}{{.Source}}{{end}}{{end}}' "${cid}" 2>/dev/null || true)"
 
+# RocksDB/ToplingDB INFO logs live under the DB data dir as LOG / LOG.old.*
+info_log_dir="${RESULT_DIR}/rocksdb-info-logs"
+mkdir -p "${info_log_dir}"
+info_log_count=0
+if [[ -n "${data_mount}" && -d "${data_mount}" ]]; then
+  while IFS= read -r -d '' f; do
+    rel="${f#"${data_mount}/"}"
+    dest="${info_log_dir}/${rel}"
+    mkdir -p "$(dirname "${dest}")"
+    cp -a "${f}" "${dest}"
+    info_log_count=$((info_log_count + 1))
+  done < <(find "${data_mount}" -type f \( -name 'LOG' -o -name 'LOG.old.*' \) -print0 2>/dev/null || true)
+elif docker inspect -f '{{.State.Running}}' "${cid}" 2>/dev/null | grep -q true; then
+  tar_host="${RESULT_DIR}/rocksdb-info-logs.tar"
+  exec_rc=0
+  docker exec "${cid}" bash -lc '
+    set -euo pipefail
+    cd /usr/local/nebula/data
+    mapfile -t files < <(find . -type f \( -name LOG -o -name "LOG.old.*" \) 2>/dev/null || true)
+    if [[ ${#files[@]} -eq 0 ]]; then
+      exit 2
+    fi
+    tar -cf /tmp/rocksdb-info-logs.tar "${files[@]}"
+  ' || exec_rc=$?
+  if [[ "${exec_rc}" -eq 2 ]]; then
+    : # no info logs present
+  elif [[ "${exec_rc}" -eq 0 ]] && docker cp "${cid}:/tmp/rocksdb-info-logs.tar" "${tar_host}" 2>/dev/null; then
+    tar -xf "${tar_host}" -C "${info_log_dir}"
+    rm -f "${tar_host}"
+    info_log_count="$(find "${info_log_dir}" -type f | wc -l)"
+  else
+    rm -f "${tar_host}" 2>/dev/null || true
+    echo "warn: failed to collect rocksdb info logs from ${cid}" >&2
+  fi
+else
+  echo "warn: cannot collect rocksdb info logs (container stopped and data mount missing)" >&2
+fi
+echo "collected ${info_log_count} rocksdb info log file(s) -> ${info_log_dir}"
+
 du_disk() { echo $(( $(du -sk "$1" | cut -f1) * 1024 )); }
 du_apparent() { du -sb "$1" | cut -f1; }
 
