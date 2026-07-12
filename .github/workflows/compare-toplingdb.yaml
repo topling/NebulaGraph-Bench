@@ -140,6 +140,14 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: compare-toplingdb-pages
+      cancel-in-progress: false
     steps:
       - name: Checkout nebula-bench
         uses: actions/checkout@v5
@@ -170,8 +178,19 @@ jobs:
           path: output/comparison-report/
           if-no-files-found: error
 
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: output/comparison-report
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
+
       - name: Publish report links
         if: always()
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
         run: |
           set -euo pipefail
           run_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
@@ -180,13 +199,17 @@ jobs:
             echo
             echo "**Workflow run:** ${run_url}"
             echo
-            echo "1. 打开上方 run 页面底部 **Artifacts**"
-            echo "2. 下载 **comparison-report**"
-            echo "3. 解压后用浏览器打开 **comparison.html**"
+            echo "**Artifact:** 下载 \`comparison-report\` → 打开 \`comparison.html\`"
             echo
-            echo "| 文件 | 说明 |"
-            echo "| --- | --- |"
-            echo "| comparison.html | 三方案对比（图表 + 元数据） |"
-            echo "| rocksdb / conservative / enterprise.html | 单 profile 报告 |"
-            echo "| *.csv | 原始指标 CSV |"
           } >> "${GITHUB_STEP_SUMMARY}"
+          if [[ "${{ steps.deployment.outcome }}" == "success" && -n "${PAGE_URL}" ]]; then
+            base="${PAGE_URL%/}/"
+            {
+              echo "**Pages 报告:** ${base}"
+              echo
+              echo "| 报告 | URL |"
+              echo "| --- | --- |"
+              echo "| 三方案对比 | ${base}comparison.html |"
+              echo "| 索引 | ${base} |"
+            } >> "${GITHUB_STEP_SUMMARY}"
+          fi
