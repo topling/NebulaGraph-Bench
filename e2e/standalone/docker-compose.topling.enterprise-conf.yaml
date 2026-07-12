@@ -1,0 +1,6 @@
+# Bind-mount a host-side topling-enterprise.yaml over the image default.
+# Requires TOPLING_ENTERPRISE_CONF_HOST to point at a readable yaml file.
+services:
+  nebula-standalone:
+    volumes:
+      - ${TOPLING_ENTERPRISE_CONF_HOST}:/usr/local/nebula/etc/topling/topling-enterprise.yaml:ro

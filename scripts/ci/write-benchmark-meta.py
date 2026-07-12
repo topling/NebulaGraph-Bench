@@ -58,12 +58,15 @@ def _topling_easy_conf(profile: str) -> dict | None:
         "conservative": f"{prefix}/etc/topling/topling-mimic-rocksdb.yaml",
         "enterprise": f"{prefix}/etc/topling/topling-enterprise.yaml",
     }
-    return {
+    conf = {
         "topling_migrate_profile": profile,
         "toplingdb_easy_migrate_conf": yaml_map[profile],
         "rocksdb_kick_out_options_file": "1",
         "toplingdb_getcontext_sampling": "kNone",
     }
+    if profile == "enterprise" and os.environ.get("ENTERPRISE_WRITE_BUFFER_SIZE"):
+        conf["write_buffer_size_override"] = os.environ["ENTERPRISE_WRITE_BUFFER_SIZE"]
+    return conf
 
 
 def main() -> int:

@@ -102,6 +102,8 @@ jobs:
           TOPLING_IMAGE: ${{ inputs.topling_image != '' && inputs.topling_image || format('ghcr.io/{0}/nebula-standalone-topling:latest', github.repository_owner) }}
           SCALE_FACTOR: ${{ inputs.scale_factor }}
           STRESS_ARGS: ${{ inputs.stress_args }}
+          # enterprise image default write_buffer_size=2G OOMs GH runners under INSERT; CI overrides to 128M
+          ENTERPRISE_WRITE_BUFFER_SIZE: "128M"
         run: |
           set -euo pipefail
           echo "ROCKSDB_IMAGE=${ROCKSDB_IMAGE}"

@@ -17,13 +17,16 @@ RESULT_DIR="${BENCH_ROOT}/output/${PROFILE}-${OUT_STAMP}"
 ROCKSDB_IMAGE="${ROCKSDB_IMAGE:-ghcr.io/topling/nebula-standalone-rocksdb:latest}"
 TOPLING_IMAGE="${TOPLING_IMAGE:-ghcr.io/topling/nebula-standalone-topling:latest}"
 
+COMPOSE_ARGS=(-f)
 case "${PROFILE}" in
   rocksdb)
     COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.rocksdb.yaml"
+    COMPOSE_ARGS+=("${COMPOSE_FILE}")
     export ROCKSDB_IMAGE
     ;;
   conservative|enterprise)
     COMPOSE_FILE="${COMPOSE_DIR}/docker-compose.topling.yaml"
+    COMPOSE_ARGS+=("${COMPOSE_FILE}")
     export TOPLING_IMAGE
     export TOPLING_MIGRATE_PROFILE="${PROFILE}"
     case "${PROFILE}" in
@@ -50,7 +53,36 @@ if [[ -n "${NEBULA_ROOT:-}" ]] && [[ "${ALLOW_NEBULA_COMPILE:-0}" != "1" ]]; the
 fi
 
 compose() {
-  docker compose -f "${COMPOSE_FILE}" "$@"
+  docker compose "${COMPOSE_ARGS[@]}" "$@"
+}
+
+# Extract image topling-enterprise.yaml and force write_buffer_size for CI runners.
+prepare_enterprise_conf_override() {
+  local wbs="${ENTERPRISE_WRITE_BUFFER_SIZE:-128M}"
+  local out="${RESULT_DIR}/topling-enterprise.ci.yaml"
+  local cid
+  echo "=== enterprise conf override: write_buffer_size=${wbs} ==="
+  mkdir -p "${RESULT_DIR}"
+  cid="$(docker create "${TOPLING_IMAGE}")"
+  docker cp "${cid}:/usr/local/nebula/etc/topling/topling-enterprise.yaml" "${out}"
+  docker rm -f "${cid}" >/dev/null
+  python3 - "${out}" "${wbs}" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+wbs = sys.argv[2]
+text = path.read_text(encoding="utf-8")
+pat = re.compile(r"^([ \t]*write_buffer_size:\s*)\S+(.*)$", re.M)
+new_text, n = pat.subn(rf"\g<1>{wbs}\2", text, count=1)
+if n != 1:
+    raise SystemExit(f"expected to patch exactly 1 write_buffer_size, patched={n}")
+path.write_text(new_text, encoding="utf-8")
+print(f"patched {path} write_buffer_size -> {wbs}")
+PY
+  export TOPLING_ENTERPRISE_CONF_HOST="${out}"
+  COMPOSE_ARGS+=(-f "${COMPOSE_DIR}/docker-compose.topling.enterprise-conf.yaml")
 }
 
 dump_compose_debug() {
@@ -89,21 +121,24 @@ cleanup() {
 }
 trap cleanup EXIT
 
+mkdir -p "${RESULT_DIR}"
+export NEBULA_ADDRESS="${NEBULA_ADDRESS:-127.0.0.1:9669}"
+export NEBULA_REPLICA_FACTOR="${NEBULA_REPLICA_FACTOR:-1}"
+
 echo "=== profile=${PROFILE} image rocksdb=${ROCKSDB_IMAGE} topling=${TOPLING_IMAGE} ==="
 if [[ "${ALLOW_MISSING_PULL:-0}" == "1" ]]; then
   compose pull || true
 else
   compose pull
 fi
+if [[ "${PROFILE}" == "enterprise" ]]; then
+  prepare_enterprise_conf_override
+fi
 compose up -d
 
 wait_for_graph_port "startup"
 # Extra settle time for standalone init
 sleep 5
-
-mkdir -p "${RESULT_DIR}"
-export NEBULA_ADDRESS="${NEBULA_ADDRESS:-127.0.0.1:9669}"
-export NEBULA_REPLICA_FACTOR="${NEBULA_REPLICA_FACTOR:-1}"
 
 echo "=== bootstrap LDBC datagen Maven deps ==="
 bash "${BENCH_ROOT}/scripts/ci/bootstrap-dsol-xml-maven.sh"
