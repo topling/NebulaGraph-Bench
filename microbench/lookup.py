@@ -55,16 +55,16 @@ def run_lookup_queries(suite: MicrobenchSuite) -> None:
     resp = suite.execute(f"USE {LOOKUP_SPACE}")
     suite.check_resp_succeeded(resp)
     queries = [
-        "LOOKUP ON person WHERE person.age < 0",
-        "LOOKUP ON person WHERE person.age > 0",
-        "LOOKUP ON person WHERE person.age > 60",
-        "LOOKUP ON person WHERE person.age > 90",
-        'LOOKUP ON person WHERE person.name == "sssssaass"',
-        'LOOKUP ON person WHERE person.name == "saaaaaass"',
-        "LOOKUP ON person WHERE person.age < 10",
-        "LOOKUP ON person WHERE person.age > 80",
-        "LOOKUP ON person WHERE person.age > 60",
-        "LOOKUP ON person WHERE person.age > 90",
+        "LOOKUP ON person WHERE person.age < 0 YIELD id(vertex)",
+        "LOOKUP ON person WHERE person.age > 0 YIELD id(vertex)",
+        "LOOKUP ON person WHERE person.age > 60 YIELD id(vertex)",
+        "LOOKUP ON person WHERE person.age > 90 YIELD id(vertex)",
+        'LOOKUP ON person WHERE person.name == "sssssaass" YIELD id(vertex)',
+        'LOOKUP ON person WHERE person.name == "saaaaaass" YIELD id(vertex)',
+        "LOOKUP ON person WHERE person.age < 10 YIELD id(vertex)",
+        "LOOKUP ON person WHERE person.age > 80 YIELD id(vertex)",
+        "LOOKUP ON person WHERE person.age > 60 YIELD id(vertex)",
+        "LOOKUP ON person WHERE person.age > 90 YIELD id(vertex)",
     ]
     for q in queries:
         resp = suite.execute(q)
