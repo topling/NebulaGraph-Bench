@@ -1,4 +1,7 @@
-"""Lookup microbench: load + query as functions; pre/post compact query runs."""
+"""Lookup microbench: load + query as functions; pre/post compact query runs.
+
+主体语义对齐 Nebula tests/bench/lookup.py；编排拆成 load/query 与 compact 前后测读。
+"""
 from __future__ import annotations
 
 import os
@@ -13,7 +16,8 @@ LOOKUP_SPACE = "benchlookupspace"
 
 
 def load_lookup_data(suite: MicrobenchSuite) -> None:
-    """Create indexed space and bulk-insert ~1M vertices/edges."""
+    """对齐原版 TestLookupBench.prepare（不含原版 sleep(4) 的硬编码，改用 suite.delay）。"""
+    # 原版无 vid_type；standalone INT64 会话需显式声明（与 topling-bench patch 一致）。
     resp = suite.execute(
         "CREATE SPACE IF NOT EXISTS {space}("
         "partition_num={partition_num}, replica_factor={replica_factor}, "
@@ -28,43 +32,40 @@ def load_lookup_data(suite: MicrobenchSuite) -> None:
     suite.wait_space_ready(LOOKUP_SPACE)
     resp = suite.execute("CREATE TAG IF NOT EXISTS person(name string, age int)")
     suite.check_resp_succeeded(resp)
-    suite.wait_schema_ready("TAG", "person")
-    suite.wait_tag_writable("person")
     resp = suite.execute(
-        "CREATE TAG INDEX IF NOT EXISTS personName ON person(name(10))"
+        "CREATE TAG INDEX IF NOT EXISTS personName ON person(name)"
     )
     suite.check_resp_succeeded(resp)
-    suite.wait_schema_ready("TAG INDEX", "personName")
-    resp = suite.execute("CREATE TAG INDEX IF NOT EXISTS personAge ON person(age)")
-    suite.check_resp_succeeded(resp)
-    suite.wait_schema_ready("TAG INDEX", "personAge")
-    suite.wait_after_schema()
-    resp = suite.execute("REBUILD TAG INDEX personName, personAge")
+    resp = suite.execute(
+        "CREATE TAG INDEX IF NOT EXISTS personAge ON person(age)"
+    )
     suite.check_resp_succeeded(resp)
     suite.wait_after_schema()
-    insert_vertices(suite, LOOKUP_SPACE, 20000, 50)
+    # 原版: insert_vertices(self, "benchlookupspace", 50, 20000)
+    insert_vertices(suite, LOOKUP_SPACE, 50, 20000)
     resp = suite.execute("CREATE EDGE IF NOT EXISTS like(likeness int)")
     suite.check_resp_succeeded(resp)
-    suite.wait_schema_ready("EDGE", "like")
-    suite.wait_edge_writable("like")
-    insert_edges(suite, LOOKUP_SPACE, 20000, 50)
+    suite.wait_after_schema()
+    # 原版: insert_edges(self, "benchlookupspace", 50, 20000)
+    insert_edges(suite, LOOKUP_SPACE, 50, 20000)
 
 
 def run_lookup_queries(suite: MicrobenchSuite) -> None:
-    """Query-only path: USE existing indexed space, no bulk INSERT."""
+    """对齐原版 TestLookupBench.lookup 的查询主体（WHERE 条件与语句序列）。"""
     resp = suite.execute(f"USE {LOOKUP_SPACE}")
     suite.check_resp_succeeded(resp)
+    # Nebula 3.x 强制 YIELD；WHERE 谓词与条数对齐原版 lookup()。
     queries = [
-        "LOOKUP ON person WHERE person.age < 0 YIELD id(vertex)",
-        "LOOKUP ON person WHERE person.age > 0 YIELD id(vertex)",
-        "LOOKUP ON person WHERE person.age > 60 YIELD id(vertex)",
-        "LOOKUP ON person WHERE person.age > 90 YIELD id(vertex)",
-        'LOOKUP ON person WHERE person.name == "sssssaass" YIELD id(vertex)',
-        'LOOKUP ON person WHERE person.name == "saaaaaass" YIELD id(vertex)',
-        "LOOKUP ON person WHERE person.age < 10 YIELD id(vertex)",
-        "LOOKUP ON person WHERE person.age > 80 YIELD id(vertex)",
-        "LOOKUP ON person WHERE person.age > 60 YIELD id(vertex)",
-        "LOOKUP ON person WHERE person.age > 90 YIELD id(vertex)",
+        "lookup on person where person.age < 0 YIELD id(vertex)",
+        "lookup on person where person.age > 0 YIELD id(vertex)",
+        "lookup on person where person.age > 60 YIELD id(vertex)",
+        "lookup on person where person.age > 90 YIELD id(vertex)",
+        'lookup on person where person.name == "sssssaass" YIELD id(vertex)',
+        'lookup on person where person.name == "saaaaaass" YIELD id(vertex)',
+        "lookup on person where person.age < 10 YIELD id(vertex)",
+        "lookup on person where person.age > 80 YIELD id(vertex)",
+        "lookup on person where person.age > 60 YIELD id(vertex)",
+        "lookup on person where person.age > 90 YIELD id(vertex)",
     ]
     for q in queries:
         resp = suite.execute(q)

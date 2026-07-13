@@ -1,4 +1,7 @@
-"""Insert microbench: write timing + compact + disk in cleanup, then DROP SPACE."""
+"""Insert microbench: write timing + compact + disk in cleanup, then DROP SPACE.
+
+主体语义对齐 Nebula tests/bench/insert.py；仅 harness 层做 space 就绪与 compact/占盘。
+"""
 from __future__ import annotations
 
 import time
@@ -17,6 +20,7 @@ INSERT_SPACE = "benchinsertspace"
 @pytest.fixture(scope="module")
 def insert_prepared(suite: MicrobenchSuite):
     s = suite
+    # 原版无 vid_type；standalone INT64 会话需显式声明（与 topling-bench patch 一致）。
     resp = s.execute(
         "CREATE SPACE IF NOT EXISTS {space}("
         "partition_num={partition_num}, replica_factor={replica_factor}, "
@@ -28,15 +32,13 @@ def insert_prepared(suite: MicrobenchSuite):
         )
     )
     s.check_resp_succeeded(resp)
+    # 原版: time.sleep(self.delay) 后 USE；此处轮询至 space 可见再继续。
     s.wait_space_ready(INSERT_SPACE)
     resp = s.execute("CREATE TAG IF NOT EXISTS person(name string, age int)")
     s.check_resp_succeeded(resp)
-    s.wait_schema_ready("TAG", "person")
-    s.wait_tag_writable("person")
     resp = s.execute("CREATE EDGE IF NOT EXISTS like(likeness int)")
     s.check_resp_succeeded(resp)
-    s.wait_schema_ready("EDGE", "like")
-    s.wait_edge_writable("like")
+    s.wait_after_schema()
     yield s
     s.record_storage_stage("insert_pre_compact")
     s.run_compact_job(INSERT_SPACE)
