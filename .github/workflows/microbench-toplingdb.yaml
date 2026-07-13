@@ -1,4 +1,4 @@
-name: Compare ToplingDB bench
+name: Microbench ToplingDB
 
 on:
   workflow_dispatch:
@@ -11,14 +11,6 @@ on:
         description: GHCR image for topling standalone (empty = ghcr.io/<owner>/nebula-standalone-topling:latest)
         required: false
         default: ""
-      scale_factor:
-        description: LDBC scale factor
-        required: false
-        default: "1"
-      stress_args:
-        description: Args passed to run.py stress run --args=
-        required: false
-        default: "-d 30s"
       bootstrap_pages:
         description: If true and no pages-site snapshot exists, bootstrap empty Pages site (first publish only)
         required: false
@@ -33,7 +25,7 @@ permissions:
   packages: read
 
 concurrency:
-  group: compare-toplingdb-${{ github.ref }}
+  group: microbench-toplingdb-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -44,7 +36,7 @@ jobs:
   bench:
     name: ${{ matrix.profile }}
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 360
     strategy:
       fail-fast: false
       matrix:
@@ -53,49 +45,13 @@ jobs:
       - name: Checkout nebula-bench
         uses: actions/checkout@v5
 
-      - name: Cache Maven
-        uses: actions/cache@v5
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('scripts/vendor/**', 'scripts/ci/bootstrap-dsol-xml-maven.sh') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
-
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.8"
 
-      - name: Set up JDK 1.8
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "8"
-
-      - name: Set up Maven
-        uses: stCarolas/setup-maven@v5.1
-        with:
-          maven-version: 3.5.4
-
-      - name: Bootstrap LDBC datagen Maven deps
-        run: bash scripts/ci/bootstrap-dsol-xml-maven.sh
-
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version: "1.20.3"
-
-      - name: Cache Hadoop
-        uses: actions/cache@v5
-        with:
-          path: target/data/hadoop-3.2.1.tar.gz
-          key: ${{ runner.os }}-hadoop-${{ hashFiles('scripts/generate-data.sh') }}
-
-      - name: Install bench deps (importer + k6)
-        env:
-          CGO_ENABLED: "0"
-          INSTALL_SYSTEM_DEPS: "1"
-        run: bash scripts/ci/install-bench-deps.sh
+      - name: Install microbench deps
+        run: python3 -m pip install --upgrade pip && python3 -m pip install -r scripts/ci/microbench-requirements.txt
 
       - name: Login to GHCR
         uses: docker/login-action@v4
@@ -104,48 +60,30 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull image and run profile bench
+      - name: Pull image and run profile microbench
         env:
           ROCKSDB_IMAGE: ${{ inputs.rocksdb_image != '' && inputs.rocksdb_image || format('ghcr.io/{0}/nebula-standalone-rocksdb:latest', github.repository_owner) }}
           TOPLING_IMAGE: ${{ inputs.topling_image != '' && inputs.topling_image || format('ghcr.io/{0}/nebula-standalone-topling:latest', github.repository_owner) }}
-          SCALE_FACTOR: ${{ inputs.scale_factor }}
-          STRESS_ARGS: ${{ inputs.stress_args }}
-          # enterprise image default write_buffer_size=2G OOMs GH runners under INSERT; CI overrides to 128M
           ENTERPRISE_WRITE_BUFFER_SIZE: "128M"
-          # enterprise zip localTempDir defaults to /dev/shm; CI overrides to /tmp
           ENTERPRISE_LOCAL_TEMP_DIR: "/tmp"
         run: |
           set -euo pipefail
-          echo "ROCKSDB_IMAGE=${ROCKSDB_IMAGE}"
-          echo "TOPLING_IMAGE=${TOPLING_IMAGE}"
-          # Guard: no nebula compile in this workflow
-          if grep -RInE 'cmake|make build|docker build' scripts/ci/run-profile-bench.sh >/dev/null; then
-            echo "unexpected compile hooks in run-profile-bench.sh" >&2
+          if grep -RInE 'cmake|make build|docker build' scripts/ci/run-profile-microbench.sh >/dev/null; then
+            echo "unexpected compile hooks in run-profile-microbench.sh" >&2
             exit 1
           fi
-          bash scripts/ci/run-profile-bench.sh "${{ matrix.profile }}"
+          bash scripts/ci/run-profile-microbench.sh "${{ matrix.profile }}"
 
       - name: Upload profile output
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: bench-${{ matrix.profile }}
-          path: output/${{ matrix.profile }}-*
+          name: microbench-${{ matrix.profile }}
+          path: output/microbench-${{ matrix.profile }}-*
           if-no-files-found: warn
 
-      - name: Bench job summary
-        if: always()
-        run: |
-          {
-            echo "## bench-${{ matrix.profile }}"
-            echo
-            echo "Workflow run: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            echo
-            echo "Download artifact **bench-${{ matrix.profile }}** from the run Artifacts section."
-          } >> "${GITHUB_STEP_SUMMARY}"
-
   report:
-    name: comparison-report
+    name: microbench-report
     needs: bench
     if: ${{ !cancelled() && needs.bench.result == 'success' }}
     runs-on: ubuntu-latest
@@ -169,25 +107,22 @@ jobs:
         with:
           python-version: "3.8"
 
-      - name: Install report deps
-        run: python3 -m pip install --upgrade pip && python3 -m pip install -r requirements.txt
-
-      - name: Download bench artifacts
+      - name: Download microbench artifacts
         uses: actions/download-artifact@v8
         with:
           path: output
-          pattern: bench-*
+          pattern: microbench-*
           merge-multiple: true
 
-      - name: Generate comparison report
-        run: bash scripts/ci/generate-comparison-report.sh
+      - name: Generate microbench report
+        run: bash scripts/ci/generate-microbench-report.sh output output/microbench-report
 
-      - name: Upload comparison report artifact
+      - name: Upload microbench report artifact
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: comparison-report
-          path: output/comparison-report/
+          name: microbench-report
+          path: output/microbench-report/
           if-no-files-found: error
 
       - name: Download latest pages-site snapshot
@@ -232,7 +167,7 @@ jobs:
             } >> "${GITHUB_STEP_SUMMARY}"
           fi
 
-      - name: Merge ldbcbench run into pages site
+      - name: Merge microbench run into pages site
         if: steps.pages_gate.outputs.publish == 'true'
         env:
           ACTIONS_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -240,9 +175,9 @@ jobs:
           set -euo pipefail
           bash scripts/ci/merge-pages-site.sh \
             output/pages-site \
-            ldbcbench \
+            microbench \
             "${GITHUB_RUN_ID}" \
-            output/comparison-report \
+            output/microbench-report \
             "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
       - name: Upload pages-site snapshot artifact
@@ -274,11 +209,11 @@ jobs:
           set -euo pipefail
           run_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           {
-            echo "## ToplingDB Benchmark Comparison (ldbcbench)"
+            echo "## Nebula microbench"
             echo
             echo "**Workflow run:** ${run_url}"
             echo
-            echo "**Artifact:** 下载 \`comparison-report\` → 打开 \`comparison.html\`"
+            echo "**Artifact:** 下载 \`microbench-report\` → 打开 \`report.html\`"
             echo
           } >> "${GITHUB_STEP_SUMMARY}"
           if [[ "${PUBLISH}" == "true" && "${{ steps.deployment.outcome }}" == "success" && -n "${PAGE_URL}" ]]; then
@@ -288,7 +223,7 @@ jobs:
               echo
               echo "| 报告 | URL |"
               echo "| --- | --- |"
-              echo "| 本次 ldbcbench | ${base}ldbcbench/runs/${{ github.run_id }}/comparison.html |"
+              echo "| 本次 microbench | ${base}microbench/runs/${{ github.run_id }}/report.html |"
               echo "| 索引表 | ${base} |"
             } >> "${GITHUB_STEP_SUMMARY}"
           fi

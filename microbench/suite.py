@@ -1,0 +1,240 @@
+"""Thin nebula3 harness for microbench (no NebulaTestSuite / pytest seed)."""
+from __future__ import annotations
+
+import json
+import os
+import time
+from pathlib import Path
+from typing import Any, Optional
+
+from nebula3.Config import Config
+from nebula3.gclient.net import ConnectionPool
+
+
+def _du_disk_bytes(path: Path) -> int:
+    # Match collect-profile-artifacts.sh: du -sk * 1024
+    import subprocess
+
+    out = subprocess.check_output(["du", "-sk", str(path)], text=True)
+    kib = int(out.split()[0])
+    return kib * 1024
+
+
+def _du_apparent_bytes(path: Path) -> int:
+    import subprocess
+
+    out = subprocess.check_output(["du", "-sb", str(path)], text=True)
+    return int(out.split()[0])
+
+
+def _row_cells(row) -> list:
+    if hasattr(row, "values"):
+        return row.values
+    return row
+
+
+def _cell_str(cell) -> str:
+    if cell is None:
+        return ""
+    if hasattr(cell, "as_string"):
+        return cell.as_string()
+    return str(cell)
+
+
+def _keys(resp) -> list[str]:
+    return [k.decode() if isinstance(k, bytes) else str(k) for k in resp.keys()]
+
+
+class MicrobenchSuite:
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        user: str = "root",
+        password: str = "nebula",
+        delay: float = 5.0,
+        partition_num: int = 1,
+        replica_factor: int = 1,
+        data_dir: Optional[str] = None,
+        storage_json: Optional[str] = None,
+    ):
+        self.host = host
+        self.port = port
+        self.user = user
+        self.password = password
+        self.delay = delay
+        self.partition_num = partition_num
+        self.replica_factor = replica_factor
+        self.data_dir = Path(data_dir) if data_dir else None
+        self.storage_json = Path(storage_json) if storage_json else None
+        self._pool: Optional[ConnectionPool] = None
+        self._session = None
+
+    def connect(self) -> None:
+        cfg = Config()
+        cfg.max_connection_pool_size = 10
+        pool = ConnectionPool()
+        if not pool.init([(self.host, self.port)], cfg):
+            raise RuntimeError(f"failed to init ConnectionPool {self.host}:{self.port}")
+        self._pool = pool
+        self._session = pool.get_session(self.user, self.password)
+
+    def close(self) -> None:
+        if self._session is not None:
+            try:
+                self._session.release()
+            except Exception:
+                pass
+            self._session = None
+        if self._pool is not None:
+            try:
+                self._pool.close()
+            except Exception:
+                pass
+            self._pool = None
+
+    def execute(self, query: str):
+        if self._session is None:
+            raise RuntimeError("suite not connected")
+        return self._session.execute(query)
+
+    def check_resp_succeeded(self, resp) -> None:
+        if not resp.is_succeeded():
+            raise RuntimeError(f"nGQL failed: {resp.error_msg()}")
+
+    def sleep_schema(self) -> None:
+        time.sleep(self.delay)
+
+    def measure_data_dir(self) -> dict[str, Any]:
+        if self.data_dir is None or not self.data_dir.is_dir():
+            return {
+                "measurement_scope": "standalone data dir",
+                "data_dir": str(self.data_dir) if self.data_dir else None,
+                "error": "data_dir missing or not a directory",
+                "data_dir_disk_bytes": 0,
+                "data_dir_apparent_bytes": 0,
+                "storage_disk_bytes": 0,
+                "storage_apparent_bytes": 0,
+                "meta_disk_bytes": 0,
+                "meta_apparent_bytes": 0,
+            }
+        data_dir = self.data_dir
+        storage = data_dir / "storage"
+        meta = data_dir / "meta"
+        return {
+            "measurement_scope": "standalone data dir",
+            "data_dir": "/usr/local/nebula/data",
+            "host_data_dir": str(data_dir),
+            "measurement_methods": {
+                "disk_bytes": "du -sk (actual blocks allocated)",
+                "apparent_bytes": "du -sb (logical file sizes)",
+            },
+            "data_dir_disk_bytes": _du_disk_bytes(data_dir),
+            "data_dir_apparent_bytes": _du_apparent_bytes(data_dir),
+            "storage_disk_bytes": _du_disk_bytes(storage) if storage.is_dir() else 0,
+            "storage_apparent_bytes": _du_apparent_bytes(storage)
+            if storage.is_dir()
+            else 0,
+            "meta_disk_bytes": _du_disk_bytes(meta) if meta.is_dir() else 0,
+            "meta_apparent_bytes": _du_apparent_bytes(meta) if meta.is_dir() else 0,
+        }
+
+    def record_storage_stage(self, stage: str) -> dict[str, Any]:
+        payload = self.measure_data_dir()
+        payload["measurement_stage"] = stage
+        payload["recorded_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        if self.storage_json is not None:
+            self.storage_json.parent.mkdir(parents=True, exist_ok=True)
+            doc: dict[str, Any] = {"schema_version": 2, "stages": {}}
+            if self.storage_json.is_file():
+                try:
+                    doc = json.loads(self.storage_json.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    pass
+            stages = doc.setdefault("stages", {})
+            stages[stage] = payload
+            self.storage_json.write_text(
+                json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+        return payload
+
+    def run_compact_job(
+        self,
+        space: str,
+        timeout_sec: float = 1800.0,
+        poll_interval: float = 2.0,
+    ) -> dict[str, Any]:
+        started = time.monotonic()
+        self.check_resp_succeeded(self.execute(f"USE `{space}`"))
+        resp = self.execute("SUBMIT JOB COMPACT")
+        self.check_resp_succeeded(resp)
+        if resp.row_size() == 0:
+            raise RuntimeError(f"SUBMIT JOB COMPACT returned no rows for {space!r}")
+        keys = _keys(resp)
+        try:
+            id_idx = keys.index("New Job Id")
+        except ValueError:
+            id_idx = 0
+        cells = _row_cells(resp.row_values(0))
+        job_id = int(_cell_str(cells[id_idx]))
+
+        deadline = time.monotonic() + timeout_sec
+        last_status = "UNKNOWN"
+        while time.monotonic() < deadline:
+            show = self.execute(f"SHOW JOB {job_id}")
+            self.check_resp_succeeded(show)
+            if show.row_size() == 0:
+                time.sleep(poll_interval)
+                continue
+            skeys = _keys(show)
+            try:
+                status_idx = skeys.index("Status")
+            except ValueError:
+                status_idx = 1 if len(skeys) > 1 else 0
+            last_status = _cell_str(_row_cells(show.row_values(0))[status_idx])
+            if last_status in ("FINISHED", "FAILED", "STOPPED", "TIMEOUT"):
+                break
+            time.sleep(poll_interval)
+        else:
+            raise RuntimeError(
+                f"timeout waiting for COMPACT job {job_id} last={last_status}"
+            )
+        if last_status != "FINISHED":
+            raise RuntimeError(f"COMPACT job {job_id} ended with {last_status}")
+        elapsed = time.monotonic() - started
+        result = {
+            "space": space,
+            "job_id": job_id,
+            "status": last_status,
+            "elapsed_sec": elapsed,
+        }
+        if self.storage_json is not None:
+            self.storage_json.parent.mkdir(parents=True, exist_ok=True)
+            doc: dict[str, Any] = {"schema_version": 2}
+            if self.storage_json.is_file():
+                try:
+                    doc = json.loads(self.storage_json.read_text(encoding="utf-8"))
+                except json.JSONDecodeError:
+                    pass
+            compact = doc.setdefault("compact", {})
+            compact[space] = result
+            self.storage_json.write_text(
+                json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+        return result
+
+
+def suite_from_env() -> MicrobenchSuite:
+    address = os.environ.get("MICROBENCH_ADDRESS", "127.0.0.1:9669")
+    host, port_s = address.rsplit(":", 1)
+    return MicrobenchSuite(
+        host=host,
+        port=int(port_s),
+        user=os.environ.get("MICROBENCH_USER", "root"),
+        password=os.environ.get("MICROBENCH_PASSWORD", "nebula"),
+        delay=float(os.environ.get("MICROBENCH_GRAPH_DELAY", "5")),
+        partition_num=int(os.environ.get("MICROBENCH_PARTITION_NUM", "1")),
+        replica_factor=int(os.environ.get("MICROBENCH_REPLICA_FACTOR", "1")),
+        data_dir=os.environ.get("MICROBENCH_DATA_DIR"),
+        storage_json=os.environ.get("MICROBENCH_STORAGE_JSON"),
+    )
