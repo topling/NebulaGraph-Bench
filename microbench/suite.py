@@ -105,6 +105,34 @@ class MicrobenchSuite:
     def sleep_schema(self) -> None:
         time.sleep(self.delay)
 
+    def wait_space_ready(
+        self,
+        space: str,
+        timeout_sec: Optional[float] = None,
+        interval_sec: float = 1.0,
+    ) -> None:
+        """Poll USE until space is visible (CREATE SPACE is async on meta)."""
+        timeout = (
+            timeout_sec
+            if timeout_sec is not None
+            else float(os.environ.get("MICROBENCH_SPACE_READY_TIMEOUT", "120"))
+        )
+        deadline = time.monotonic() + timeout
+        last_err = ""
+        while time.monotonic() < deadline:
+            resp = self.execute(f"USE `{space}`")
+            if resp.is_succeeded():
+                return
+            last_err = resp.error_msg()
+            time.sleep(interval_sec)
+        raise RuntimeError(
+            f"timeout waiting for space {space!r} to be ready: {last_err}"
+        )
+
+    def wait_after_schema(self) -> None:
+        """Wait after DDL so subsequent DML/DQL see schema."""
+        self.sleep_schema()
+
     def measure_data_dir(self) -> dict[str, Any]:
         if self.data_dir is None or not self.data_dir.is_dir():
             return {
