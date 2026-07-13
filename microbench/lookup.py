@@ -29,6 +29,7 @@ def load_lookup_data(suite: MicrobenchSuite) -> None:
     resp = suite.execute("CREATE TAG IF NOT EXISTS person(name string, age int)")
     suite.check_resp_succeeded(resp)
     suite.wait_schema_ready("TAG", "person")
+    suite.wait_tag_writable("person")
     resp = suite.execute(
         "CREATE TAG INDEX IF NOT EXISTS personName ON person(name(10))"
     )
@@ -45,7 +46,7 @@ def load_lookup_data(suite: MicrobenchSuite) -> None:
     resp = suite.execute("CREATE EDGE IF NOT EXISTS like(likeness int)")
     suite.check_resp_succeeded(resp)
     suite.wait_schema_ready("EDGE", "like")
-    suite.wait_after_schema()
+    suite.wait_edge_writable("like")
     insert_edges(suite, LOOKUP_SPACE, 20000, 50)
 
 

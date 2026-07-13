@@ -32,10 +32,11 @@ def insert_prepared(suite: MicrobenchSuite):
     resp = s.execute("CREATE TAG IF NOT EXISTS person(name string, age int)")
     s.check_resp_succeeded(resp)
     s.wait_schema_ready("TAG", "person")
+    s.wait_tag_writable("person")
     resp = s.execute("CREATE EDGE IF NOT EXISTS like(likeness int)")
     s.check_resp_succeeded(resp)
     s.wait_schema_ready("EDGE", "like")
-    s.wait_after_schema()
+    s.wait_edge_writable("like")
     yield s
     s.record_storage_stage("insert_pre_compact")
     s.run_compact_job(INSERT_SPACE)

@@ -187,7 +187,7 @@ class MicrobenchSuite:
         timeout = (
             timeout_sec
             if timeout_sec is not None
-            else float(os.environ.get("MICROBENCH_SCHEMA_READY_TIMEOUT", "120"))
+            else float(os.environ.get("MICROBENCH_SCHEMA_READY_TIMEOUT", "180"))
         )
         deadline = time.monotonic() + timeout
         last_err = ""
@@ -199,6 +199,74 @@ class MicrobenchSuite:
             time.sleep(interval_sec)
         raise RuntimeError(
             f"timeout waiting for {kind_u} {name!r} schema: {last_err}"
+        )
+
+    def wait_tag_writable(
+        self,
+        tag: str,
+        *,
+        timeout_sec: Optional[float] = None,
+        interval_sec: float = 1.0,
+        probe_vid: int = -1,
+    ) -> None:
+        """Poll INSERT VERTEX until storage schema cache accepts the tag."""
+        timeout = (
+            timeout_sec
+            if timeout_sec is not None
+            else float(os.environ.get("MICROBENCH_SCHEMA_READY_TIMEOUT", "180"))
+        )
+        deadline = time.monotonic() + timeout
+        last_err = ""
+        insert_q = (
+            f'INSERT VERTEX `{tag}`(name, age) VALUES '
+            f'{probe_vid}:("schema_probe", 0)'
+        )
+        while time.monotonic() < deadline:
+            resp = self.execute(insert_q)
+            if resp.is_succeeded():
+                self.execute(f"DELETE VERTEX {probe_vid}")
+                return
+            last_err = resp.error_msg()
+            time.sleep(interval_sec)
+        raise RuntimeError(
+            f"timeout waiting for TAG {tag!r} writable: {last_err}"
+        )
+
+    def wait_edge_writable(
+        self,
+        edge: str,
+        *,
+        tag: str = "person",
+        timeout_sec: Optional[float] = None,
+        interval_sec: float = 1.0,
+        src_vid: int = -2,
+        dst_vid: int = -3,
+    ) -> None:
+        """Poll INSERT EDGE until storage schema cache accepts the edge."""
+        timeout = (
+            timeout_sec
+            if timeout_sec is not None
+            else float(os.environ.get("MICROBENCH_SCHEMA_READY_TIMEOUT", "180"))
+        )
+        deadline = time.monotonic() + timeout
+        last_err = ""
+        # Ensure endpoints exist for the edge probe.
+        self.execute(
+            f'INSERT VERTEX `{tag}`(name, age) VALUES '
+            f'{src_vid}:("edge_probe_src", 0), {dst_vid}:("edge_probe_dst", 0)'
+        )
+        insert_q = f"INSERT EDGE `{edge}`(likeness) VALUES {src_vid}->{dst_vid}:(0)"
+        while time.monotonic() < deadline:
+            resp = self.execute(insert_q)
+            if resp.is_succeeded():
+                self.execute(f"DELETE EDGE `{edge}` {src_vid} -> {dst_vid}")
+                self.execute(f"DELETE VERTEX {src_vid}, {dst_vid}")
+                return
+            last_err = resp.error_msg()
+            time.sleep(interval_sec)
+        self.execute(f"DELETE VERTEX {src_vid}, {dst_vid}")
+        raise RuntimeError(
+            f"timeout waiting for EDGE {edge!r} writable: {last_err}"
         )
 
     def wait_after_schema(self) -> None:
@@ -332,7 +400,7 @@ def suite_from_env() -> MicrobenchSuite:
         port=int(port_s),
         user=os.environ.get("MICROBENCH_USER", "root"),
         password=os.environ.get("MICROBENCH_PASSWORD", "nebula"),
-        delay=float(os.environ.get("MICROBENCH_GRAPH_DELAY", "20")),
+        delay=float(os.environ.get("MICROBENCH_GRAPH_DELAY", "33")),
         partition_num=int(os.environ.get("MICROBENCH_PARTITION_NUM", "1")),
         replica_factor=int(os.environ.get("MICROBENCH_REPLICA_FACTOR", "1")),
         data_dir=os.environ.get("MICROBENCH_DATA_DIR"),
