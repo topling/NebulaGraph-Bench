@@ -32,8 +32,10 @@ def load_lookup_data(suite: MicrobenchSuite) -> None:
     suite.wait_space_ready(LOOKUP_SPACE)
     resp = suite.execute("CREATE TAG IF NOT EXISTS person(name string, age int)")
     suite.check_resp_succeeded(resp)
+    # 原版为 person(name)；Nebula 3.x 变长 string 索引必须带长度（与 YIELD 同类适配）。
+    # length=10 对齐 data_generate.random_string(10)。
     resp = suite.execute(
-        "CREATE TAG INDEX IF NOT EXISTS personName ON person(name)"
+        "CREATE TAG INDEX IF NOT EXISTS personName ON person(name(10))"
     )
     suite.check_resp_succeeded(resp)
     resp = suite.execute(

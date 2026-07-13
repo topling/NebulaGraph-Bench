@@ -329,9 +329,11 @@ class MicrobenchSuite:
     def run_compact_job(
         self,
         space: str,
-        timeout_sec: float = 1800.0,
+        timeout_sec: Optional[float] = None,
         poll_interval: float = 2.0,
     ) -> dict[str, Any]:
+        if timeout_sec is None:
+            timeout_sec = float(os.environ.get("MICROBENCH_COMPACT_TIMEOUT", "3600"))
         started = time.monotonic()
         self.check_resp_succeeded(self.execute(f"USE `{space}`"))
         resp = self.execute("SUBMIT JOB COMPACT")
@@ -364,8 +366,24 @@ class MicrobenchSuite:
                 break
             time.sleep(poll_interval)
         else:
+            # Harness diagnostics only; do not alter compact semantics.
+            jobs_diag = ""
+            try:
+                all_jobs = self.execute("SHOW JOBS")
+                if all_jobs.is_succeeded():
+                    rows = []
+                    jkeys = _keys(all_jobs)
+                    for i in range(min(all_jobs.row_size(), 20)):
+                        cells = _row_cells(all_jobs.row_values(i))
+                        rows.append(
+                            {jkeys[j]: _cell_str(cells[j]) for j in range(len(jkeys))}
+                        )
+                    jobs_diag = f" SHOW JOBS(sample)={rows}"
+            except Exception as exc:  # noqa: BLE001
+                jobs_diag = f" SHOW JOBS failed: {exc}"
             raise RuntimeError(
                 f"timeout waiting for COMPACT job {job_id} last={last_status}"
+                f"{jobs_diag}"
             )
         if last_status != "FINISHED":
             raise RuntimeError(f"COMPACT job {job_id} ended with {last_status}")
