@@ -27,6 +27,63 @@ def _du_apparent_bytes(path: Path) -> int:
     return int(out.split()[0])
 
 
+def _measure_data_dir_via_docker(cid: str) -> dict[str, Any]:
+    """Match collect-profile-artifacts.sh docker-exec fallback (named volume not host-readable)."""
+    import subprocess
+
+    script = r"""
+set -euo pipefail
+data_dir=/usr/local/nebula/data
+du_disk() { echo $(( $(du -sk "$1" | cut -f1) * 1024 )); }
+du_apparent() { du -sb "$1" | cut -f1; }
+storage_disk=0; storage_apparent=0; meta_disk=0; meta_apparent=0
+if [[ -d "${data_dir}/storage" ]]; then
+  storage_disk=$(du_disk "${data_dir}/storage")
+  storage_apparent=$(du_apparent "${data_dir}/storage")
+fi
+if [[ -d "${data_dir}/meta" ]]; then
+  meta_disk=$(du_disk "${data_dir}/meta")
+  meta_apparent=$(du_apparent "${data_dir}/meta")
+fi
+data_disk=$(du_disk "${data_dir}")
+data_apparent=$(du_apparent "${data_dir}")
+printf "%s\n" "${data_disk}" "${data_apparent}" "${storage_disk}" "${storage_apparent}" "${meta_disk}" "${meta_apparent}"
+"""
+    out = subprocess.check_output(
+        ["docker", "exec", cid, "bash", "-lc", script],
+        text=True,
+    )
+    lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+    if len(lines) < 6:
+        raise RuntimeError(
+            f"docker exec du returned unexpected output for {cid!r}: {out!r}"
+        )
+    data_disk, data_apparent, storage_disk, storage_apparent, meta_disk, meta_apparent = (
+        int(lines[0]),
+        int(lines[1]),
+        int(lines[2]),
+        int(lines[3]),
+        int(lines[4]),
+        int(lines[5]),
+    )
+    return {
+        "measurement_scope": "standalone data dir",
+        "data_dir": "/usr/local/nebula/data",
+        "measurement_via": "docker exec",
+        "docker_cid": cid,
+        "measurement_methods": {
+            "disk_bytes": "du -sk (actual blocks allocated)",
+            "apparent_bytes": "du -sb (logical file sizes)",
+        },
+        "data_dir_disk_bytes": data_disk,
+        "data_dir_apparent_bytes": data_apparent,
+        "storage_disk_bytes": storage_disk,
+        "storage_apparent_bytes": storage_apparent,
+        "meta_disk_bytes": meta_disk,
+        "meta_apparent_bytes": meta_apparent,
+    }
+
+
 def _row_cells(row) -> list:
     if hasattr(row, "values"):
         return row.values
@@ -95,6 +152,7 @@ class MicrobenchSuite:
         replica_factor: int = 1,
         data_dir: Optional[str] = None,
         storage_json: Optional[str] = None,
+        docker_cid: Optional[str] = None,
     ):
         self.host = host
         self.port = port
@@ -105,6 +163,7 @@ class MicrobenchSuite:
         self.replica_factor = replica_factor
         self.data_dir = Path(data_dir) if data_dir else None
         self.storage_json = Path(storage_json) if storage_json else None
+        self.docker_cid = docker_cid
         self._pool: Optional[ConnectionPool] = None
         self._session = None
 
@@ -274,38 +333,35 @@ class MicrobenchSuite:
         self.sleep_schema()
 
     def measure_data_dir(self) -> dict[str, Any]:
-        if self.data_dir is None or not self.data_dir.is_dir():
+        # Prefer host mount when readable; else docker exec (same as collect-profile-artifacts.sh).
+        if self.data_dir is not None and self.data_dir.is_dir():
+            data_dir = self.data_dir
+            storage = data_dir / "storage"
+            meta = data_dir / "meta"
             return {
                 "measurement_scope": "standalone data dir",
-                "data_dir": str(self.data_dir) if self.data_dir else None,
-                "error": "data_dir missing or not a directory",
-                "data_dir_disk_bytes": 0,
-                "data_dir_apparent_bytes": 0,
-                "storage_disk_bytes": 0,
-                "storage_apparent_bytes": 0,
-                "meta_disk_bytes": 0,
-                "meta_apparent_bytes": 0,
+                "data_dir": "/usr/local/nebula/data",
+                "host_data_dir": str(data_dir),
+                "measurement_via": "host path",
+                "measurement_methods": {
+                    "disk_bytes": "du -sk (actual blocks allocated)",
+                    "apparent_bytes": "du -sb (logical file sizes)",
+                },
+                "data_dir_disk_bytes": _du_disk_bytes(data_dir),
+                "data_dir_apparent_bytes": _du_apparent_bytes(data_dir),
+                "storage_disk_bytes": _du_disk_bytes(storage) if storage.is_dir() else 0,
+                "storage_apparent_bytes": _du_apparent_bytes(storage)
+                if storage.is_dir()
+                else 0,
+                "meta_disk_bytes": _du_disk_bytes(meta) if meta.is_dir() else 0,
+                "meta_apparent_bytes": _du_apparent_bytes(meta) if meta.is_dir() else 0,
             }
-        data_dir = self.data_dir
-        storage = data_dir / "storage"
-        meta = data_dir / "meta"
-        return {
-            "measurement_scope": "standalone data dir",
-            "data_dir": "/usr/local/nebula/data",
-            "host_data_dir": str(data_dir),
-            "measurement_methods": {
-                "disk_bytes": "du -sk (actual blocks allocated)",
-                "apparent_bytes": "du -sb (logical file sizes)",
-            },
-            "data_dir_disk_bytes": _du_disk_bytes(data_dir),
-            "data_dir_apparent_bytes": _du_apparent_bytes(data_dir),
-            "storage_disk_bytes": _du_disk_bytes(storage) if storage.is_dir() else 0,
-            "storage_apparent_bytes": _du_apparent_bytes(storage)
-            if storage.is_dir()
-            else 0,
-            "meta_disk_bytes": _du_disk_bytes(meta) if meta.is_dir() else 0,
-            "meta_apparent_bytes": _du_apparent_bytes(meta) if meta.is_dir() else 0,
-        }
+        if self.docker_cid:
+            return _measure_data_dir_via_docker(self.docker_cid)
+        raise RuntimeError(
+            "cannot measure standalone data dir: set MICROBENCH_DATA_DIR "
+            "(readable host mount) or MICROBENCH_DOCKER_CID (docker exec fallback)"
+        )
 
     def record_storage_stage(self, stage: str) -> dict[str, Any]:
         payload = self.measure_data_dir()
@@ -423,4 +479,5 @@ def suite_from_env() -> MicrobenchSuite:
         replica_factor=int(os.environ.get("MICROBENCH_REPLICA_FACTOR", "1")),
         data_dir=os.environ.get("MICROBENCH_DATA_DIR"),
         storage_json=os.environ.get("MICROBENCH_STORAGE_JSON"),
+        docker_cid=os.environ.get("MICROBENCH_DOCKER_CID") or None,
     )

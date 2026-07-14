@@ -20,26 +20,36 @@ mkdir -p "${RESULT_DIR}"
 : >"${RESULT_DIR}/run-microbench.log"
 
 resolve_data_dir() {
+  # Align with collect-profile-artifacts.sh: prefer host mount; else docker exec via cid.
   local compose_file="${1:?}"
-  local cid
+  local cid=""
+  local mount=""
   cid="$(docker compose -f "${compose_file}" ps -aq nebula-standalone 2>/dev/null | head -1 || true)"
   if [[ -z "${cid}" ]]; then
-    echo "warn: no nebula-standalone container; MICROBENCH_DATA_DIR unset" >&2
-    return 0
+    cid="$(docker ps -aq --filter "name=nebula-standalone" 2>/dev/null | head -1 || true)"
   fi
-  local mount
+  if [[ -z "${cid}" ]]; then
+    echo "error: no nebula-standalone container; cannot measure data dir" >&2
+    return 1
+  fi
   mount="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/usr/local/nebula/data"}}{{.Source}}{{end}}{{end}}' "${cid}" 2>/dev/null || true)"
   if [[ -n "${mount}" && -d "${mount}" ]]; then
     export MICROBENCH_DATA_DIR="${mount}"
+    unset MICROBENCH_DOCKER_CID || true
     echo "MICROBENCH_DATA_DIR=${MICROBENCH_DATA_DIR}"
-  else
-    echo "warn: could not resolve host data mount" >&2
+    return 0
   fi
+  # Named volumes under /var/lib/docker often exist but are not -d-visible to the runner user.
+  export MICROBENCH_DOCKER_CID="${cid}"
+  unset MICROBENCH_DATA_DIR || true
+  echo "MICROBENCH_DOCKER_CID=${MICROBENCH_DOCKER_CID} (host mount unavailable mount='${mount}')"
 }
 
-if [[ -n "${COMPOSE_FILE:-}" ]]; then
-  resolve_data_dir "${COMPOSE_FILE}"
+if [[ -z "${COMPOSE_FILE:-}" ]]; then
+  echo "error: COMPOSE_FILE required so microbench can measure standalone data dir" >&2
+  exit 1
 fi
+resolve_data_dir "${COMPOSE_FILE}"
 
 PYTEST=(python3 -m pytest -v --benchmark-only --benchmark-warmup=off)
 
