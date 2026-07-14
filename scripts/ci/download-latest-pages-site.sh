@@ -93,7 +93,23 @@ req = urllib.request.Request(
         "User-Agent": "nebula-bench-pages-merge",
     },
 )
-with urllib.request.urlopen(req, timeout=180) as resp:
+
+
+class _StripAuthOnRedirect(urllib.request.HTTPRedirectHandler):
+    """Artifact CDN redirects reject GitHub Authorization; strip it on hop."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new_req = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new_req is None:
+            return None
+        for key in list(new_req.headers.keys()):
+            if key.lower() in ("authorization", "accept"):
+                del new_req.headers[key]
+        return new_req
+
+
+opener = urllib.request.build_opener(_StripAuthOnRedirect)
+with opener.open(req, timeout=180) as resp:
     blob = resp.read()
 
 with zipfile.ZipFile(BytesIO(blob)) as zf:
